@@ -518,7 +518,7 @@ exon.models[,transcript:=str_split(transcript,"\\.",simplify = T)[1],by=1:nrow(e
 
 ```
 
-## Setting Relative Position of Genes in the Genome
+#### Setting Relative Position of Genes in the Genome
 
 This is just to enable easy plotting on Manhattan plots.
 
@@ -532,7 +532,7 @@ mean.chr.pos <- transcripts[,mean(manh.pos), by = chrom]
 
 ```
 
-##### Gene Counts
+#### Gene Counts
 
 Then, I use data calculated [above](#post-processing-of-statistics), to check expected number of rare synonymous variants per gene as a function of coding sequence length:
 
@@ -554,7 +554,7 @@ transcripts.annotated[,highlight:=if_else(syn.count == 0, T, F)]
 ggplot(transcripts.annotated,aes(cds_length,syn.count,colour=highlight)) + geom_point(size = 0.5) + xlim(0,30000) + ylim(0,3100) + geom_abline(slope = 0.08062,intercept=13.25662) + theme
 ```
 
-##### Identifying Genes with 0 Variants
+#### Identifying Genes with 0 Variants
 
 This will pull out all genes with "0" synonymous variants and annotate them according to preset rules based on manual inspection.
 
@@ -618,7 +618,7 @@ per.cat.fail[,chr:=factor(chr,levels=c(1:22,"X","Y"))]
 ggplot(per.cat.fail,aes(chr, V1, fill=fail.cat, group=fail.cat)) + geom_col() + theme.legend + theme(panel.grid.major.x=element_blank())
 ```
 
-##### Sample Counts
+#### Sample Counts
 
 ```{r}
 
@@ -645,7 +645,7 @@ indv.counts[,high.SYN:=if_else(SYN>quantile(rpois(n = 453342, lambda = 77), prob
 table(indv.counts[,c("high.SYN","European_ancestry")])
 ```
 
-##### Writing Transcript File for DNANexus
+#### Writing Transcript File for DNANexus
 
 Finally, I write a file that is uploaded to DNANexus for annotation during Association Testing. This file is currently stored in project `project-G6BJF50JJv8p4PjGB9yy7YQ2` as file `file-G7xyzF8JJv8kyV7q5z8VV3Vb`.
 
@@ -655,7 +655,7 @@ Finally, I write a file that is uploaded to DNANexus for annotation during Assoc
 
 ```
 
-## 6c. Running Associations
+### 5d. Running Associations
 
 This uses the 'launch' script located in `./scripts/`. See that file for more information on how association testing is run for individual tools. This script will launch all tools on all masks for a given phenotype.
 
@@ -756,7 +756,7 @@ dx upload variant_mask_list.txt --destination collapsed_variants_new/
 ./launch.sh file-G7zPvZ0JJv8v06j8Gv2ppxpJ file-G87xkX8JYVk8y19F3ky9ZJ3P false babys_bw_2.5to4.5 0 file-XXXXXXXXXXXXXXXXXXXXXXXX bw_grs
 ```
 
-### Run the Tool
+#### Run the Tool
 
 ```{bash}
 
@@ -764,7 +764,7 @@ dx run mrcepid-buildgrms --priority low --destination project_resources/genetics
 
 ```
 
-### Running Individual Genes/Phenotypes
+#### Running Individual Genes/Phenotypes
 
 #### Manual
 
