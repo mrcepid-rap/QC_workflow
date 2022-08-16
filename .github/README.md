@@ -11,7 +11,7 @@ The purpose of this Markdown is to document variant processing and QC of the 470
 
 - [Setup](#setup)
 - [Utility Functions](#utility-functions)
-  * [Cloud Workstation {#cloud-workstation}](#cloud-workstation---cloud-workstation-)
+  * [Cloud Workstation](#cloud-workstation)
   * [Querying jobs by status](#querying-jobs-by-status)
   * [Checking Finished Jobs](#checking-finished-jobs)
 - [Variant Processing and Filtering](#variant-processing-and-filtering)
@@ -24,20 +24,9 @@ The purpose of this Markdown is to document variant processing and QC of the 470
   * [4. Collapse Variants](#4-collapse-variants)
   * [5. Run Association Testing](#5-run-association-testing)
     + [5a. Setting Genetic Data:](#5a-setting-genetic-data-)
-      - [WES Samples List](#wes-samples-list)
-      - [Define WBA grouping](#define-wba-grouping)
     + [5b. Setting Covariates](#5b-setting-covariates)
-      - [Defining WES Batch](#defining-wes-batch)
     + [5c. Generate Transcript List](#5c-generate-transcript-list)
-      - [Setting Relative Position of Genes in the Genome](#setting-relative-position-of-genes-in-the-genome)
-      - [Gene Counts](#gene-counts)
-      - [Identifying Genes with 0 Variants](#identifying-genes-with-0-variants)
-      - [Sample Counts](#sample-counts)
-      - [Writing Transcript File for DNANexus](#writing-transcript-file-for-dnanexus)
     + [5d. Running Associations](#5d-running-associations)
-      - [Run the Tool](#run-the-tool)
-      - [Running Individual Genes/Phenotypes](#running-individual-genes-phenotypes)
-      - [Manual](#manual)
 - [Loading Association Tests](#loading-association-tests)
   * [Functions for Loading Data](#functions-for-loading-data)
   * [Functions for Plotting](#functions-for-plotting)
@@ -65,7 +54,7 @@ theme.legend <- theme + theme(legend.position="right")
 
 This section contains simple examples of utility functions for working on the UK Biobank Research Access Platform (RAP). You may need to refine them yourself.
 
-## Cloud Workstation {#cloud-workstation}
+## Cloud Workstation
 
 This will open a cloud work station with 2 CPUs, 4 Gb of memory and 100 Gb of storage. If more is needed, modify the `instance-type` parameter.
 
