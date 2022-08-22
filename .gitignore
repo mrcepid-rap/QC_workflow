@@ -2,3 +2,6 @@
 .Rhistory
 .RData
 .Ruserdata
+
+data_files/wba.txt
+data_files/transcripts/*
