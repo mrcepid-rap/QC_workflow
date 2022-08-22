@@ -153,6 +153,8 @@ dx ls -l batch_lists/ | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print 
 
 This step performs filtering and VEP annotation according to parameters decided by the MRC Epidemiology RAP working group. Please see the [github page](https://github.com/mrcepid-rap/mrcepid-filterbcf) for more information.
 
+**BIG NOTE:** There are default file locations for all of the annotations. If you do not have access to the internal MRC project(s) you will need to provide locations to all annotations files as inputs. The below command points to a .json that does not exist byt default with this repo, but gives an indication of how these files can be provided in bulk.
+
 All split vcf files are stored in `/filtered_vcfs/` and match a regex like `ukb23148_c*_b*_v1_chunk?.bcf`. There are a total of 4,722 split bcfs.
 
 ```{bash, eval = F}
@@ -173,50 +175,6 @@ dx ls -l batch_lists/ | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {$file 
 
 ```
 
-### 2a. Post-processing of statistics
-
-Following this step I launched a [cloud workstation](#cloud-workstation) to generate final per-gene and per-individual statistics and generate a list file of variant coordinates within each split and annotated bcf-file for future users. The [cloud workstation](#cloud-workstation) was launched as described above. Following launch, I used the following commands:
-
-```{bash, eval = F}
-
-# Download all statistics files from the 'annotate-cadd' step into two separate directories:
-mkdir per_indv/
-mkdir per_gene/
-cd per_indv/ \
-  && dx download --no-progress filtered_vcfs/ukb23148_c*_b*_v1_chunk*.norm.filtered.tagged.missingness_filtered.annotated.cadd.per_indv.tsv \
-  && cd ../per_gene/ \
-  && dx download --no-progress filtered_vcfs/ukb23148_c*_b*_v1_chunk*.norm.filtered.tagged.missingness_filtered.annotated.vep.tsv.gz
-
-# Download required processing files
-dx download project_resources/genetics/ukb_450k_samples.txt
-dx download mash.pl
-
-# Merge per-individual statistics files together:
-ls per_indv/*.per_indv.tsv > per_indv_list.txt
-./mash.pl > 450k_indv_counts.tsv
-bgzip 450k_indv_counts.tsv
-dx upload --destination results/ 450k_indv_counts.tsv.gz
-
-# Merge per-variant statistics files together:
-zcat per_gene/*.tsv.gz > 450k_vep.tsv
-sort -k1,1 -k2,2n 450k_vep.tsv > 450k_vep.sorted.tsv
-bgzip 450k_vep.sorted.tsv
-tabix -s 1 -b 2 -e 2 450k_vep.sorted.tsv.gz
- dx upload --destination results/ 450k_vep.sorted.tsv.gz
- 
-# Generate coordinate file:
-ls per_gene/*.tsv.gz > variants_list.txt
-./coordinate_maker.pl > coordinates.tsv
-dx upload coordinates.tsv
-
-# Then locally...
-dx ls -l filtered_vcfs/*.norm.filtered.tagged.missingness_filtered.annotated.vep.tsv.gz.tbi | perl -ane 'chomp $_; if ($F[5] =~ /(ukb23148_c[0-9XY]{1,2}_b\d+_v1_chunk\d)\./) {$root = $1; if ($F[6] =~ /^\((\S+)\)$/) {$id = $1; print "$root\t$id\t$F[5]\n"}}' > file_locs.txt
-~/Documents/Current\ Projects/Fertility/UKBBFertility/scripts/matcher.pl -file2 coordinates.files.tsv -file1 file_locs.txt -r -col2 3 | perl -ane 'chomp $_; print "$F[0]\t$F[1]\t$F[2]\t$F[4]\t$F[5]\t$F[6]\n";' | sort -k1,1 -k2,2n -k3,3n > coordinates.files.tsv
-bgzip coordinates.files.tsv
-tabix -s 1 -b 2 -e 3 coordinates.files.tsv.gz
-dx upload coordinates.files.tsv.gz
-```
-
 ## 3. Create BGEN from BCF
 
 ### 3a. Make BGEN list file
@@ -229,7 +187,7 @@ Need to login to a cloud workstation (see above) and download all of the coordin
 
 Commands below make this file on the cloud workstation:
 
-```{bash, eval = F}
+```{bash make bgen list, eval = F}
 
 dx-su-contrib
 mkdir coords & cd coords
@@ -252,69 +210,73 @@ dx upload --destination filtered_annotated_vcfs/ bcf_coordinates.tsv.gz
 
 ### 3b. Run make-bgen
 
-```{bash, eval = F}
+```{bash make bgen, eval = F}
 
 perl -e 'for my $chr (1..22,"X","Y") {print "dx run mrcepid-makebgen --destination filtered_bgen/ --priority normal -ichromosome=\"chr$chr\" -icoordinate_file=file-GFx0z70J0zVpJzVF0QG6Fjfk;\n";}' | bash
 
 ```
 
-```{r}
-
-bcf_coords <- fread("../scratch/bcf_coordinates.tsv.gz")
-bcf_coords[,dummy:=1]
-bcf_coords[,row:=.I]
-
-bcf_coords[,root_name:=str_split(fileprefix, "_chunk",simplify = T)[,1]]
-bcf_coords[,sum(dummy),by=root_name]
-
-starts = bcf_coords[,start]
-stops = bcf_coords[,stop]
-
-distances <- starts[2:length(starts)] - stops[1:(length(stops)-1)]
-distances <- c(NA, distances)
-bcf_coords[,distance:=distances]
-
-vep <- fread("../scratch/chr1.filtered.vep.tsv.gz")
-```
-
 ## 4. Collapse Variants
 
-```{bash, eval = F}
-# MAF < 1e-3
-# PTVs
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="PTV" & LOFTEE=="HC"' -ifile_prefix=HC_PTV-MAF_01 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="PTV"' -ifile_prefix=PTV-MAF_01 --destination collapsed_variants_new/ --brief --yes
+### 4a. Generating Genetic File List
 
-# Missense
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE"' -ifile_prefix=MISS-MAF_01 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & CADD>=25' -ifile_prefix=MISS_CADD25-MAF_01 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & REVEL>=0.5' -ifile_prefix=MISS_REVEL0_5-MAF_01 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & REVEL>=0.7' -ifile_prefix=MISS_REVEL0_7-MAF_01 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & CADD>=25 & REVEL>=0.7' -ifile_prefix=MISS_CADD25_REVEL0_7-MAF_01 --destination collapsed_variants_new/ --brief --yes
+The input `bgen_index` to mrcepid-runassociationtesting is a tab-delimited file that looks like the following:
 
-# Synonymous
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & PARSED_CSQ=="SYN"' -ifile_prefix=SYN-MAF_01 --destination collapsed_variants_new/ --brief --yes
+```
+chrom   vep   bgen    index   sample
+chr1    file-1234567890ABCDEFGH   file-0987654321ABCDEFGH   file-1234567890HGFEDCBA   file-0987654321HGFEDCBA
+```
 
-# Combined Deleterious
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AF<0.001 & FILTER=="PASS" & ((PARSED_CSQ=="PTV" & LOFTEE=="HC") | (PARSED_CSQ=="MISSENSE" & CADD>=25))' -ifile_prefix=DMG-MAF_01 --destination collapsed_variants_new/ --brief --yes
+The following script should automate the production of this file:
 
-# AC = 1
-# PTVs
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="PTV" & LOFTEE=="HC"' -ifile_prefix=HC_PTV-AC_1 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="PTV"' -ifile_prefix=PTV-AC_1 --destination collapsed_variants_new/ --brief --yes
+`scripts/build_bgen_list.py`
 
-# Missense
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE"' -ifile_prefix=MISS-AC_1 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & CADD>=25' -ifile_prefix=MISS_CADD25-AC_1 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & REVEL>=0.5' -ifile_prefix=MISS_REVEL0_5-AC_1 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & REVEL>=0.7' -ifile_prefix=MISS_REVEL0_7-AC_1 --destination collapsed_variants_new/ --brief --yes
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="MISSENSE" & CADD>=25 & REVEL>=0.7' -ifile_prefix=MISS_CADD25_REVEL0_7-AC_1 --destination collapsed_variants_new/ --brief --yes
+Remember to upload the file to DNANexus like:
 
-# Synonymous
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & PARSED_CSQ=="SYN"' -ifile_prefix=SYN-AC_1 --destination collapsed_variants_new/ --brief --yes
+`dx upload --destination filtered_bgen/ bgen_locs.tsv`
 
-# Combined Deleterious
-dx run mrcepid-collapsevariants --priority low -ifiltering_expression='AC==1 & FILTER=="PASS" & ((PARSED_CSQ=="PTV" & LOFTEE=="HC") | (PARSED_CSQ=="MISSENSE" & CADD>=25))' -ifile_prefix=DMG-AC_1 --destination collapsed_variants_new/ --brief --yes
+# 4b. Running Collapse Variants
+
+Here we generate a list of variant types that we want to collapse on to generate sets of variants for associationtesting. Obviously these can be tweaked, but here I am generating a set of initial variants useful for most scenarios.
+
+**WARNING:** DO NOT enable CADD below unless you are academic or have a licence!
+
+```{r collapse variants, eval = F}
+
+MAFs <- list('MAF_01' = "AF<0.001",
+             'MAF_1' = "AF<0.01",
+             'AC_1' = "AC==1")
+CSQs <- list('HC_PTV' = 'PARSED_CSQ=="PTV" & LOFTEE=="HC"',
+            'PTV' = 'PARSED_CSQ=="PTV"',
+            'MISS' = 'PARSED_CSQ=="MISSENSE"',
+            #'MISS_CADD25' = 'PARSED_CSQ=="MISSENSE" & CADD>=25',
+            'MISS_REVEL0_5' = 'PARSED_CSQ=="MISSENSE" & REVEL>=0.5',
+            'MISS_REVEL0_7' = 'PARSED_CSQ=="MISSENSE" & REVEL>=0.7',
+            #'MISS_CADD25_REVEL0_7' = 'PARSED_CSQ=="MISSENSE" & CADD>=25 & REVEL>=0.7',
+            'SYN' = 'PARSED_CSQ=="SYN"',
+            'DMG' = '((PARSED_CSQ=="PTV" & LOFTEE=="HC") | (PARSED_CSQ=="MISSENSE" & REVEL>=0.5))')
+
+for (maf in names(MAFs)) {
+  
+  for (csq in names(CSQs)) {
+    
+    base_command <- 'dx run mrcepid-collapsevariants --priority normal --destination collapsed_variants --brief --yes -ibgen_index=file-GFzfyyQJ0zVqXZQBK4592QQg'
+    expression <- paste0("'",paste(MAFs[maf], CSQs[csq], 'FILTER=="PASS"', sep = " & "), "'")
+    filename <- paste(csq, maf, sep = '-')
+    cat(paste(base_command, # standard input for all runs
+              paste0('-ifiltering_expression=',expression), # filtering expression
+              paste0('-ifile_prefix=', filename), # file name
+              sep = ' '))
+    cat('\n')
+    
+    
+  }
+  
+  cat('\n')
+  
+}
+
+# Note -- It's normally easier to add this to a shell script and submit rather than copy-pasting
 ```
 
 ```{bash}
@@ -375,8 +337,14 @@ B. Base Covariates - A tab-delimited file of base covariates that all models wil
     - age
     - sex
     - wes_batch
-    
-C. 
+
+C. Generating statistics files for quality control
+    - Per-individual stats
+    - All VEP annotations
+
+D. Transcripts List - A list of valid ENST/MANE transcripts with annotations
+
+E. File listing locations of genetic data
 
 ### 5a. Setting Genetic Data:
 
@@ -459,57 +427,72 @@ fwrite(pca[,c("n_eid","European_ancestry")], '../scratch/wba.txt', quote = F, se
 
 ### 5b. Setting Covariates
 
-#### Defining WES Batch
+Base covariates were processed on in a RAP python notebook environment (see [here](https://documentation.dnanexus.com/user/jupyter-notebooks)). A python notebook to repeat this analysis is available as part of this repository:
 
-```{r WES Batch}
+`python_notebooks/base_covariates.ipynb`
 
-covariates <- fread("../scratch/covariates.tsv")
-covariates[,eid:=as.character(eid)]
+### 5c. Post-processing of statistics
 
-load.samples <- function(file) {
-  
-  samples <- fread(file,header = F)
-  setnames(samples,"V1","eid")
-  samples[,eid:=as.character(eid)]
-  return(samples)
-  
-}
+Following this step I launched a [cloud workstation](#cloud-workstation) to generate final per-gene and per-individual statistics and generate a list file of variant coordinates within each split and annotated bcf-file for future users. The [cloud workstation](#cloud-workstation) was launched as described above. 
 
-samples.50k <- load.samples("../scratch/samples_50k.txt")
-samples.200k <- load.samples("../scratch/samples_200k.txt")
-samples.450k <- load.samples("../scratch/samples_450k.txt")
+Note that this code requires the use of the 'mash.pl' script, which is included in the `scripts/` folder. This will need to be uploaded to the RAP in order to use as directed below when downloading (`dx download mash.pl`)
 
-covariates[,wes.batch:=if_else(eid %in% samples.50k[,eid], "50k",
-                               if_else(eid %in% samples.200k[,eid], "200k",
-                                       if_else(eid %in% samples.450k[,eid], "450k", as.character(NA))))]
+Following launch, I used the following commands:
 
-fwrite(covariates, "../scratch/covariates.wes_added.tsv", sep = "\t", col.names = T, row.names = F, quote = F)
+```{bash post-process stats, eval = F}
 
+# Download all statistics files from the 'annotate-cadd' step into two separate directories:
+mkdir per_indv/
+cd per_indv/ \
+  && dx download --no-progress filtered_annotated_vcfs/ukb*_c*_b*_v1_chunk*.per_indv.tsv
+
+# Download required processing files
+dx download project_resources/wes_resources/wes_samples.470k.txt
+dx download mash.pl
+
+# Merge per-individual statistics files together:
+ls per_indv/*.per_indv.tsv > per_indv_list.txt
+./mash.pl > 470k_indv_counts.tsv
+bgzip 470k_indv_counts.tsv
+dx upload --destination project_resources/wes_resources/ 470k_indv_counts.tsv.gz
+
+# Merge per-variant statistics files together:
+mkdir vep/ && cd vep/ && dx download --no-progress filtered_bgen/*.vep.tsv.gz
+zgrep -hv CHROM *.tsv.gz > 470k_vep.tsv
+zgrep CHROM chrY.filtered.vep.tsv.gz > header.tsv
+sort -k 1,1 -k2,2n 470k_vep.tsv > 470k_vep.sorted.tsv
+cat header.tsv 470k_vep.sorted.tsv > 470k_vep.sorted.header.tsv
+mv 470k_vep.sorted.header.tsv 470k_vep.sorted.tsv
+bgzip 470k_vep.sorted.tsv
+tabix -c 'C' -s 1 -b 2 -e 2 470k_vep.sorted.tsv.gz
 ```
 
-### 5c. Generate Transcript List
+### 5d. Generate Transcript List
+
+#### Download and Input Initial Transcript Lists
 
 To get a reasonable set of protein-coding transcripts for Hg38 I generated two separate files:
 
-1.  `data_files/hgTables.txt` - File downloaded from the UCSC Genome Browser - Table Browser. The purpose of this file is to calculate total coding sequence length, which cannot be derived from BioMart (file #2). I selected GENCODE v38 and selected the following rows:
+1.  `data_files/hgTables.txt.gz` - File downloaded from the UCSC Genome Browser - Table Browser. The purpose of this file is to calculate total coding sequence length, which cannot be derived from BioMart (file #2). I selected the latest GENCODE (v41 currently) and selected the following rows:
 
-    -   Transcript name
-    -   Coding sequence start
-    -   Coding sequence end
-    -   Number of exons
-    -   Exon start coordinates
-    -   Exon end coordinates
-    -   transcript type (e.g. protein_coding)
+    -   Transcript name (name)
+    -   Gene Start (chromStart)
+    -   Coding sequence start (thickStart)
+    -   Coding sequence end (thickEnd)
+    -   Number of exons (blockCount)
+    -   Exon start coordinates (chromStarts)
+    -   Exon lengths (blockSizes)
+    -   transcript type (e.g. protein_coding; transcriptType)
 
-This file is then processed like: `scripts/get_cds_len.pl > ./data_files/cds_lengths.txt`
+This file is then processed like: `python3 scripts/get_cds_len.py`
 
-2.  `data_files/mart_export` - File downloaded from ENSEMBL BioMart. The purpose of this file is to get valid ENSEMBL transcripts for all possible genes in Hg38, with canonical and MANE transcript for each gene. I selected GRCh38 and selected the following rows:
+2.  `data_files/mart_export.txt` - File downloaded from ENSEMBL BioMart. The purpose of this file is to get valid ENSEMBL transcripts for all possible genes in Hg38, with canonical and MANE transcript for each gene. I selected the latest version and GRCh38 and selected the following rows:
 
     -   Gene stable ID (form of ENSG)
     -   Transcript stable ID (form of ENST)
     -   MANE Select ID (form of NM)
     -   Transcript Length - Note that this is **NOT** coding sequence length, as above
-    -   Gene Name (I believe HUGO name)
+    -   HGNC Symbol
     -   Is ENSEMBL canonical transcript (1 for yes, blank for no)
     -   Chromosome
     -   Start coordinate
@@ -536,10 +519,19 @@ cds_table <- unique(cds_table)
 # merge
 transcripts <- merge(transcripts, cds_table, by = "ENST", all.x = T)
 
-# Also load the raw exon models in order to plot later:
-exon.models <- fread("data_files/hgTables.txt")
-setnames(exon.models, names(exon.models), c("transcript","cdsStart","cdsEnd","numExons","exonStarts","exonEnds","transcriptType"))
-exon.models[,transcript:=str_split(transcript,"\\.",simplify = T)[1],by=1:nrow(exon.models)]
+# set a relative location in the human genome for all transcripts for manhattan plots:
+get_manh_pos <- function(start, c) {
+  
+  c <- paste0('chr',c)
+  cuml_length <- hg38_index[chrom == c, cuml_length]
+  total_length <- hg38_index[chrom == 'chrY', length + cuml_length]
+  manh_pos <- (start + cuml_length) / total_length
+  return(manh_pos)
+  
+}
+hg38_index <- fread("data_files/hs38DH.fa.fai", col.names = c("chrom","length","cuml_length","linecount","linewidth"))
+
+transcripts[,manh.pos:=get_manh_pos(start, chrom), by = 1:nrow(transcripts)]
 
 ```
 
@@ -549,22 +541,18 @@ This is just to enable easy plotting on Manhattan plots.
 
 ```{r mean gene position}
 
-transcripts <- fread("data_files/transcripts.tsv.gz")
-setnames(transcripts,"#chrom","chrom")
-
 # Get chromosome locations for the plot
 mean.chr.pos <- transcripts[,mean(manh.pos), by = chrom]
 
 ```
 
-#### Gene Counts
+#### Get per-gene Counts
 
-Then, I use data calculated [above](#post-processing-of-statistics), to check expected number of rare synonymous variants per gene as a function of coding sequence length:
+Note that the vep.tsv.gz file cannot be included in this repository, so you will have to place the file (once generated) into the correct folder as indicated below
 
 ```{r fig.height=6, fig.width=8}
 
-vep.stats <- fread("data_files/450k_vep.sorted.tsv.gz")
-setnames(vep.stats,"#CHROM","CHROM")
+vep.stats <- fread("data_files/annotations/470k_vep.sorted.tsv.gz")
 vep.stats[,dummy:=1]
 counts <- vep.stats[PARSED_CSQ=="SYN" & FILTER == "PASS" & MAF < 1e-3,sum(dummy),by=c("ENST")]
 
@@ -586,20 +574,19 @@ This will pull out all genes with "0" synonymous variants and annotate them acco
 ```{r fig.height=5, fig.width=10}
 
 missing <- transcripts.annotated[syn.count == 0]
-fwrite(transcripts.annotated[syn.count == 0], "data_files/missing_genes.tsv", col.names = F, row.names = F, sep = "\t")
+fwrite(transcripts.annotated[syn.count == 0], "data_files/transcripts/missing_genes.tsv", col.names = F, row.names = F, sep = "\t", quote = F)
 
 # Checking number of baits for missing genes
-# perl -ane 'chomp $_; print "echo $F[0]\ntabix xgen_plus_spikein.GRCh38.bed.gz \"$F[9]\" | wc -l;\n";' missing_genes.tsv | bash > bait_counts.txt
+# Need to bgzip/tabix xgen_plus_spikein.GRCh38.bed
+# perl -ane 'chomp $_; print "echo $F[0]\ntabix xgen_plus_spikein.GRCh38.bed.gz \"$F[14]\" | wc -l;\n";' missing_genes.tsv | bash > bait_counts.txt
 # perl -ane 'chomp $_; if ($_ =~ /ENST/) {print "$_\t"} elsif ($_ =~ /(\d+)/) {print "$1\n"}' bait_counts.txt > bait_counts.form.txt
-baits <- fread("data_files/bait_counts.form.txt")
-setnames(baits, c("V1","V2"),c("ENST","bait.count"))
+baits <- fread("data_files/transcripts/bait_counts.form.txt", col.names = c("ENST","bait.count"))
 missing <- merge(missing,baits,by="ENST")
 
 # Checking number of IDd variants for missing genes
-# perl -ane 'chomp $_; print "echo $F[0]\ntabix 450k_vep.sorted.tsv.gz \"$F[9]\" | wc -l;\n";' missing_genes.tsv | bash > variant_counts.txt
+# perl -ane 'chomp $_; print "echo $F[0]\ntabix ../470k_vep.sorted.tsv.gz \"$F[14]\" | wc -l;\n";' missing_genes.tsv | bash > variant_counts.txt
 # perl -ane 'chomp $_; if ($_ =~ /ENST/) {print "$_\t"} elsif ($_ =~ /(\d+)/) {print "$1\n"}' variant_counts.txt > variant_counts.form.txt
-variants <- fread("data_files/variant_counts.form.txt")
-setnames(variants, c("V1","V2"),c("ENST","variant.count"))
+variants <- fread("data_files/transcripts/variant_counts.form.txt", col.names=c("ENST","variant.count"))
 missing <- merge(missing,variants, by = "ENST")
 
 # Checking proportion of variants in a given gene with FAIL for FILTER
@@ -609,78 +596,83 @@ missing <- merge(missing, fail.prop[,c("ENST", "fail.prop")], all.x = T, by = "E
 
 # Setting fail categories
 missing[,fail.cat:=if_else(bait.count == 0, "NOT_SEQ", "")]
-missing[,fail.cat:=if_else(grepl("-",SYMBOL) & fail.cat == "", "READTHROUGH", fail.cat)]
-missing[,fail.cat:=if_else(chr == "Y" & fail.cat == "", "CHR_Y", fail.cat)]
+missing[,fail.cat:=if_else(grepl("\\-\\S{2}",SYMBOL,perl = T) & fail.cat == "", "READTHROUGH", fail.cat)]
+missing[,fail.cat:=if_else(chrom == "Y" & fail.cat == "", "CHR_Y", fail.cat)]
 missing[,fail.cat:=if_else(SYMBOL == "" & fail.cat == "", "NO_NAME", fail.cat)]
 missing[,fail.cat:=if_else(fail.prop > 0.75 & fail.cat == "" & !is.na(fail.prop), "NO_PASS_VARS", fail.cat)]
 missing[,fail.cat:=if_else(variant.count == 0 & fail.cat == "", "NO_VARS_IN_VCF",fail.cat)]
-
-# Manually annotating the rest...
-fwrite(missing[fail.cat == ""],"data_files/missing.tsv",col.names = T, row.names = F, sep = "\t", quote = F)
-
-# And read back in and add to original file:
-missing.annotated <- fread("data_files/missing.annotated.txt")
-# Everything after here is stupid AF. Why did I code it this way?
-missing.annotated <- merge(missing,missing.annotated[,c("ENST","fail.cat")],by="ENST")
-missing.annotated <- missing.annotated[fail.cat.x==""]
-setnames(missing.annotated,"fail.cat.y","fail.cat")
-missing.annotated[,fail.cat.x:=NULL]
-missing <- rbind(missing[fail.cat != ""], missing.annotated)
+missing[,fail.cat:=if_else(fail.cat == "", "OTHER",fail.cat)]
 
 # Merge back into the main plot
 transcripts.annotated <- merge(transcripts.annotated,missing[,c("ENST","fail.cat")],by="ENST",all.x=T)
 transcripts.annotated[,dummy:=1]
 transcripts.annotated[,fail:=if_else(is.na(fail.cat),F,T)]
-per.chr.fail <- data.table(pivot_wider(transcripts.annotated[,sum(dummy),by=c("fail","chr")], names_from = fail, values_from = V1))
-per.chr.fail[,chr:=factor(chr,levels=c(1:22,"X","Y"))]
-setkey(per.chr.fail,chr)
+per.chr.fail <- data.table(pivot_wider(transcripts.annotated[,sum(dummy),by=c("fail","chrom")], names_from = fail, values_from = V1))
+per.chr.fail[,chrom:=factor(chrom,levels=c(1:22,"X","Y"))]
+setkey(per.chr.fail,chrom)
 per.chr.fail[,prop.fail:=(`TRUE`/(`TRUE` + `FALSE`))*100]
 
-ggplot(per.chr.fail,aes(chr,prop.fail)) + geom_col() + xlab("Chromosome") + ylab("Proportion Failed Genes") + theme + theme(panel.grid.major.x=element_blank())
+ggplot(per.chr.fail,aes(chrom,prop.fail)) + geom_col() + xlab("Chromosome") + ylab("Proportion Failed Genes") + theme + theme(panel.grid.major.x=element_blank())
 
-per.cat.fail <- transcripts.annotated[!is.na(fail.cat),sum(dummy),by=c("fail.cat","chr")]
-per.cat.fail[,chr:=factor(chr,levels=c(1:22,"X","Y"))]
-ggplot(per.cat.fail,aes(chr, V1, fill=fail.cat, group=fail.cat)) + geom_col() + theme.legend + theme(panel.grid.major.x=element_blank())
+per.cat.fail <- transcripts.annotated[!is.na(fail.cat),sum(dummy),by=c("fail.cat","chrom")]
+per.cat.fail[,chrom:=factor(chrom,levels=c(1:22,"X","Y"))]
+ggplot(per.cat.fail,aes(chrom, V1, fill=fail.cat, group=fail.cat)) + geom_col() + theme.legend + theme(panel.grid.major.x=element_blank())
 ```
 
 #### Sample Counts
 
 ```{r}
 
-wba <- fread("data_files/UKB_European_IncList_15092021.txt")
+wba <- fread("data_files/wba.txt")
 setnames(wba,"n_eid","eid")
 wba[,eid:=as.character(eid)]
 
-indv.counts <- fread("data_files/450k_indv_counts.tsv.gz")
+indv.counts <- fread("data_files/470k_indv_counts.tsv.gz")
 indv.counts[,eid:=as.character(eid)]
 
 indv.counts <- merge(indv.counts,wba[,c("eid","European_ancestry")],by="eid")
 
-pois.dist <- data.table(table(rpois(n = 453342, lambda = 77)))
-pois.dist[,V1:=as.integer(V1)]
-
-ggplot(indv.counts,aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=102) + theme
+ggplot(indv.counts,aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=80) + theme
 
 ggplot(indv.counts[European_ancestry == 1],aes(PTV)) + geom_histogram(binwidth=1) + theme
 ggplot(indv.counts[European_ancestry == 1],aes(MISSENSE)) + geom_histogram(binwidth=1) + theme
 ggplot(indv.counts[European_ancestry == 1],aes(SYN)) + geom_histogram(binwidth=1) + xlim(0,160) + theme
 
-quantile(rpois(n = 453342, lambda = 77), probs = c(0.997))
-indv.counts[,high.SYN:=if_else(SYN>quantile(rpois(n = 453342, lambda = 77), probs = c(0.995))[[1]],1,0)]
+quantile(rpois(n = 469430, lambda = 80), probs = c(0.997))
+indv.counts[,high.SYN:=if_else(SYN>quantile(rpois(n = 453342, lambda = 80), probs = c(0.995))[[1]],1,0)]
 table(indv.counts[,c("high.SYN","European_ancestry")])
 ```
 
 #### Writing Transcript File for DNANexus
 
-Finally, I write a file that is uploaded to DNANexus for annotation during Association Testing. This file is currently stored in project `project-G6BJF50JJv8p4PjGB9yy7YQ2` as file `file-G7xyzF8JJv8kyV7q5z8VV3Vb`.
+Finally, I write a file that is uploaded to DNANexus for annotation during Association Testing.
 
-```{r}
+```{r set transcripts}
 
+# Set specific column order to enable tab-indexing
+transcripts.annotated <- transcripts.annotated[,c("chrom","start","end","ENST","ENSG","MANE","transcript_length","SYMBOL","CANONICAL","BIOTYPE","cds_length","syn.count","coord","fail.cat","fail","manh.pos")]
 
+# Sort:
+setkeyv(transcripts.annotated,cols=c("chrom","start","end"))
+
+# And write a file
+fwrite(transcripts.annotated,"transcripts.tsv",quote=F,row.names=F,sep="\t")
 
 ```
 
-### 5d. Running Associations
+Make sure to bzip, and tabix after...
+
+```
+bgzip transcripts.tsv
+tabix -c c -s 1 -b 2 -e 3 transcripts.tsv.gz
+dx upload --destination project_resources/wes_resources/ transcripts.tsv.gz*
+```
+
+### 5f. Running Associations
+
+The following sections document different use-cases for the mrcepid-runassociationtesting app/applet.
+
+#### Burden Tests
 
 This uses the 'launch' script located in `./scripts/`. See that file for more information on how association testing is run for individual tools. This script will launch all tools on all masks for a given phenotype.
 
@@ -781,23 +773,20 @@ dx upload variant_mask_list.txt --destination collapsed_variants_new/
 ./launch.sh file-G7zPvZ0JJv8v06j8Gv2ppxpJ file-G87xkX8JYVk8y19F3ky9ZJ3P false babys_bw_2.5to4.5 0 file-XXXXXXXXXXXXXXXXXXXXXXXX bw_grs
 ```
 
-#### Run the Tool
-
-```{bash}
-
-dx run mrcepid-buildgrms --priority low --destination project_resources/genetics/ -isample_ids_file=file-GFjJ0yjJ0zVb9BK82ZQFkx0y -iwba_file=file-GFjX7y8J0zVgB7JbPq7K23qP
-
-```
-
-#### Running Individual Genes/Phenotypes
-
-#### Manual
+#### Individual Gene(s)
 
 ```{bash}
 
 dx run mrcepid-extractvariants --destination results/gene_specific/ -iassociation_tarball=collapsed_variants_new/MISS_CADD25-MAF_01.tar.gz -iphenofile=file-G82b4xjJYVk24bfJ47QP4F87 -iis_binary=false -ioutput_prefix=MISS_CADD25.VARS1.T2D -igene_id=ENST00000375663 -iinclusion_list=file-G6qXvjjJ2vfQGPp04ZGf6ygj --name VARS1.anm_all --yes --brief
 
-dx run mrcepid-extractvariants --destination results/gene_specific/ -iassociation_tarball=collapsed_variants_new/HC_PTV-MAF_01.tar.gz -iphenofile=file-G7jpjZ0JJv8jG8FKJGz7v1JZ -iis_binary=false -ioutput_prefix=HC_PTV.GIGYF1.T2D -igene_id=GIGYF1 -iinclusion_list=file-G6qXvjjJ2vfQGPp04ZGf6ygj --name GIGYF1.anm_all --yes --brief
+```
+
+
+#### PheWAS
+
+```{bash}
+
+
 
 ```
 
