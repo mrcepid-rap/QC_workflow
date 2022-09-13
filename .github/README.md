@@ -253,7 +253,7 @@ Remember to upload the file to DNANexus like:
 
 Here we generate a list of variant types that we want to collapse on to generate sets of variants for associationtesting. Obviously these can be tweaked, but here I am generating a set of initial variants useful for most scenarios.
 
-**WARNING:** DO NOT enable CADD below unless you are academic or have a licence!
+**WARNING:** DO NOT enable CADD below unless you are an academic or have a licence!
 
 ```{r collapse variants, eval = F}
 
@@ -293,49 +293,6 @@ for (maf in names(MAFs)) {
 # Note -- It's normally easier to add this to a shell script and submit rather than copy-pasting
 ```
 
-```{bash}
-
-dx ls -l filtered_vcfs/ukb23148_c*_b*_v1_chunk?.norm.filtered.tagged.missingness_filtered.annotated.cadd.bcf | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "$1\n";}' > collapse_list.txt
-
-# Split this file list into individual "jobs":
-# This will generate 134 files with ~35 BCFs per file. This means that each core will be ~used 2x in each job
-split -a 2 -l 35 collapse_list.txt collapse_list_
-
-# Upload these lists onto DNA Nexus:
-dx upload collapse_list_* --destination batch_lists/
-
-# Generate a list of jobs to run on DNA Nexus, and submit
-#MAF < 1e-3
-# PTVs
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & LOFTEE=\"HC\" & PARSED_CSQ=\"PTV\"'\'' -ifile_prefix='\''HC_PTV-MAF_01'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"PTV\"'\'' -ifile_prefix='\''PTV-MAF_01'\'';\n";}' | bash
-
-# Missense
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority normal --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"MISSENSE\"'\'' -ifile_prefix='\''MISS-MAF_01'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority normal --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"MISSENSE\" & CADD>=25'\'' -ifile_prefix='\''MISS_CADD25-MAF_01'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"MISSENSE\" & REVEL>=0.5'\'' -ifile_prefix='\''MISS_REVEL0_5-MAF_01'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"MISSENSE\" & REVEL>=0.7'\'' -ifile_prefix='\''MISS_REVEL0_7-MAF_01'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"MISSENSE\" & REVEL>=0.7 & CADD>=25'\'' -ifile_prefix='\''MISS_CADD25_REVEL0_7-MAF_01'\'';\n";}' | bash
-
-# Synonymous Variants
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority normal --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AF<0.001 & PARSED_CSQ=\"SYN\"'\'' -ifile_prefix='\''SYN-MAF_01'\'';\n";}' | bash
-
-# AC = 1
-# PTVs
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & LOFTEE=\"HC\" & PARSED_CSQ=\"PTV\"'\'' -ifile_prefix='\''HC_PTV-AC_1'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"PTV\"'\'' -ifile_prefix='\''PTV-AC_1'\'';\n";}' | bash
-
-# Missense
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"MISSENSE\"'\'' -ifile_prefix='\''MISS-AC_1'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"MISSENSE\" & CADD>=25'\'' -ifile_prefix='\''MISS_CADD25-AC_1'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"MISSENSE\" & REVEL>=0.5'\'' -ifile_prefix='\''MISS_REVEL0_5-AC_1'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"MISSENSE\" & REVEL>=0.7'\'' -ifile_prefix='\''MISS_REVEL0_7-AC_1'\'';\n";}' | bash
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"MISSENSE\" & REVEL>=0.7 & CADD>=25'\'' -ifile_prefix='\''MISS_CADD25_REVEL0_7-AC_1'\'';\n";}' | bash
-
-# Synonymous Variants
-dx ls -l batch_lists/collapse_list_* | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "dx run mrcepid-collapsevariants --priority low --yes --brief --destination collapsed_vcfs/ -iinput_vcfs=$1 -ifiltering_expression='\''FILTER=\"PASS\" \& AC=1 & PARSED_CSQ=\"SYN\"'\'' -ifile_prefix='\''SYN-AC_1'\'';\n";}' | bash
-```
-
 ## 5. Run Association Testing
 
 mrcepid-runassociation testing requires several pre-built files (other than variant definitions) to be able to run:
@@ -362,7 +319,7 @@ E. File listing locations of genetic data
 
 ### 5a. Setting Genetic Data:
 
-Building the set of files in item (1) above, also requires some pre-build data. We document how to generate these files below.
+Building the set of files in item (1) above, also requires some pre-built data. We document how to generate these files below.
 
 #### WES Samples List
 
@@ -383,60 +340,67 @@ dx upload --destination project_resources/wes_resources/ wes_samples.470k.txt
 
 The file `pca_participant.tsv` is generated by using the phenotype browser on the DNANexus website. Relevant fields were added manually and include:
 
--   PC1-40 (field 22009-0.[1-40])
+-   PC1-4 (field 22009-0.[1-4])
 -   Genetic ancestry grouping (field 22006-0.0)
+-   Self-provided ancestry grouping (field 21000-0.0)
 
-This file was then queried locally. All we have done is calculate an ellipse based on MAD\*5 for two given PCs in three combinations:
+This file was then queried locally. All we have done is calculate a kmeans clustering into 4 groups (general human super-population structure), and taken the 'mode' group as European ancestry (because most participants are of European genetic ancestry). We then query this against the self-reported ancestry grouping (field 21000) to ensure consistency between ours and participant assessment
 
--   PC1 + PC2
--   PC3 + PC4
--   PC5 + PC6
-
-Individuals that fall within this ellipse for all three cases above (as similarly done in Bycroft et al.) are included in the 'european' ancestry definition for the purposes of association testing. These resulting file (`wba.txt`) is then uploaded onto DNANexus into the `project_resources/genetics/` folder for use with the `mrcepid-makegrms` applet.
+Individuals that fall within this group are included in the 'European' ancestry definition for the purposes of association testing. These resulting file (`wba.txt`) is then uploaded onto DNANexus into the `project_resources/genetics/` folder for use with the `mrcepid-makegrms` applet.
 
 ```{r pca}
 
-pca <- fread("../scratch/pca_participant.tsv")
+pca <- fread("data_files/ancestry/pca_participant.tsv", colClasses = c("eid"="character"))
 
-cols <- c('eid', paste('22009-0',seq(1,10), sep = '.'), '22006-0.0')
-setnames(pca, cols, c('n_eid', paste0('PC', seq(1,10)), 'wba'))
+# Load ancestry codings for easier labelling
+ancestry_codings <- fread("data_files/ancestry/coding1001.tsv")
+ancestry_codings[,parent_id:=if_else(coding < 10, coding, parent_id)]
+setkey(ancestry_codings,"parent_id")
+ancestry_codings[,meaning:=factor(meaning,levels=ancestry_codings[,meaning])]
+
+cols <- c('eid', paste('22009-0',seq(1,4), sep = '.'), '22006-0.0', '21000-0.0')
+setnames(pca, cols, c('n_eid', paste0('PC', seq(1,4)), 'wba', 'ancestry'))
+
+pca <- merge(pca,ancestry_codings[,c("coding","meaning")],by.x="ancestry",by.y="coding",all.x=T)
+setcolorder(pca,c("n_eid","ancestry","meaning","wba","PC1","PC2","PC3","PC4"))
 
 pca <- pca[!is.na(PC1)]
 pca[,wba:=if_else(is.na(wba), 0, 1)]
 
-calc_ellipse <- function(one, two, mad.pc1, mad.pc2, median.pc1, median.pc2) {
-  val <- (((one - median.pc1) ^ 2 / (mad.pc1*5)^2) + (((two - median.pc2)^2) / (mad.pc2*5)^2)) <= 1
-  return(val)
-}
+cluster_data <- pca[,c("PC1","PC2","PC3","PC4")]
+cluster_data <- as.matrix(cluster_data)
+rownames(cluster_data) <- pca[,n_eid]
 
+set.seed(6547)
 
-calc_pc <- function(pc_one, pc_two) {
-  
-  mad.pc1 <- mad(pc_one)
-  mad.pc2 <- mad(pc_two)
-  
-  median.pc1 <- median(pc_one)
-  median.pc2 <- median(pc_two)
-  
-  ellipse_table <- data.table(one=pc_one, two=pc_two)
-  ellipse_table[,result:=calc_ellipse(one, two, mad.pc1, mad.pc2, median.pc1, median.pc2)]
-  
-  return(ellipse_table[,result])
-  
-}
+pca_cluster <- kmeans(cluster_data, 4, iter.max = 10, nstart = 1, algorithm = c("Hartigan-Wong"))
+cluster_table <- data.table("n_eid" = names(pca_cluster$cluster), "cluster" = as.integer(pca_cluster$cluster))
 
-pca[,pc1_pc2:=calc_pc(pca[,PC1], pca[,PC2])]
-pca[,pc3_pc4:=calc_pc(pca[,PC3], pca[,PC4])]
-pca[,pc5_pc6:=calc_pc(pca[,PC5], pca[,PC6])]
+pca <- merge(pca, cluster_table, by = "n_eid")
 
-ggplot(pca,aes(PC1, PC2, colour = pc1_pc2)) + geom_point(size = 0.2) + theme
-ggplot(pca,aes(PC3, PC4, colour = pc3_pc4)) + geom_point(size = 0.2) + theme
-ggplot(pca,aes(PC5, PC6, colour = pc5_pc6)) + geom_point(size = 0.2) + theme
+mode_cluster <- table(pca[,cluster])
+mode_cluster <- as.integer(names(mode_cluster[mode_cluster == max(mode_cluster)]))
 
-pca[,wba_v2:=pc1_pc2 & pc3_pc4 & pc5_pc6]
-pca[,European_ancestry:=if_else(wba_v2==TRUE, 1, 0)]
+european_ancestries <- c(1, 1001, 1002, 1003, 6, -3, -1)
 
-fwrite(pca[,c("n_eid","European_ancestry")], '../scratch/wba.txt', quote = F, sep = ' ', row.names = F, col.names = T)
+pca[,"European_ancestry":=if_else(cluster == mode_cluster & (ancestry %in% european_ancestries | is.na(ancestry)), 1, 0)]
+
+pca[,table(meaning,cluster)]
+
+ggplot(pca, aes(PC1, PC2, colour = as.factor(cluster))) + geom_point(size = 0.5) + theme.legend
+ggplot(pca, aes(PC3, PC4, colour = as.factor(cluster))) + geom_point(size = 0.5) + theme.legend
+
+fwrite(pca[,c("n_eid","European_ancestry")], 'data_files/ancestry/wba.txt', quote = F, sep = ' ', row.names = F, col.names = T)
+```
+
+#### Running mrcepid-buildgrms
+
+This will generate the required files for running burden tests. Replace the inputs with the DNANexus file IDs generated above. Also, make sure to create a folder for this data to be deposited in if you haven't already (hard-coded to project_resource/genetics/, below).
+
+```{bash}
+
+dx run mrcepid-buildgrms --destination project_resources/genetics/ -isample_ids_file=file-GFjJ0yjJ0zVb9BK82ZQFkx0y -iwba_file=file-GGJXYf0J0zVbq0GvGbZXpxp8 --priority=normal
+
 ```
 
 ### 5b. Setting Covariates
@@ -635,9 +599,9 @@ ggplot(per.cat.fail,aes(chrom, V1, fill=fail.cat, group=fail.cat)) + geom_col() 
 
 #### Sample Counts
 
-```{r}
+```{r sample counts}
 
-wba <- fread("data_files/wba.txt")
+wba <- fread("data_files/ancestry/wba.txt")
 setnames(wba,"n_eid","eid")
 wba[,eid:=as.character(eid)]
 
@@ -688,16 +652,28 @@ The following sections document different use-cases for the mrcepid-runassociati
 
 #### Burden Tests
 
-This uses the 'launch' script located in `./scripts/`. See that file for more information on how association testing is run for individual tools. This script will launch all tools on all masks for a given phenotype.
+This uses the `launch.sh` script located in `./scripts/`. See that file for more information on how association testing is run for individual tools. This script will launch a given tool on all masks for a given phenotype. The input parameters are:
+
+1. tarballs
+2. phenofile(s)
+3. is binary? (must be true/false)
+4. Output prefix
+5. Sex (0/1/2)
+6. Additional covariates file
+7. Additional quantitative covariates in additional covariates file
+8. Additional categorical covariates in additional covariates file
+9. Tool to use (bolt/glm/saige/regenie/staar). Can be 'null' to run all 5 tools or a comma-separated list (e.g. bolt,glm)
+
+**NOTE**: To use this script, you will need to replace the default file settings provided as part of the "DEFAULT_COVARS" variable in the `./launch.sh` script.
 
 ```{bash, eval = F}
 
-# Make a list of all association test tar files:
-dx ls -l collapsed_variants_new/*.tar.gz |  grep -v 'MISS-' | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "$1\n";}' > variant_mask_list.txt
-dx upload variant_mask_list.txt --destination collapsed_variants_new/
+# Make a list of all association test tar files for masks with MAF < 0.1%:
+dx ls -l collapsed_variants/*.tar.gz |  grep 'MAF_01' | perl -ane 'chomp $_; if ($F[6] =~ /^\((\S+)\)$/) {print "$1\n";}' > variant_mask_list.txt
+dx upload variant_mask_list.txt --destination tarball_lists/
 
-## TEST PHENO:
-./launch.sh file-G7zPvZ0JJv8v06j8Gv2ppxpJ file-G7jpjZ0JJv8jG8FKJGz7v1JZ false LOY_test 1 file-G7vPjPjJYVkB6qG4PbKz21gP loy_3way_GRS
+# This will launch a single burden test using BOLT. Additional tools can be run by modifying the final parameter (e.g. bolt,saige,staar)
+./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGJYZBjJJy81kJqV7v3YJPkv false menopause 0 null null null bolt
 
 ```
 
@@ -705,7 +681,7 @@ dx upload variant_mask_list.txt --destination collapsed_variants_new/
 
 ```{bash}
 
-dx run mrcepid-extractvariants --destination results/gene_specific/ -iassociation_tarball=collapsed_variants_new/MISS_CADD25-MAF_01.tar.gz -iphenofile=file-G82b4xjJYVk24bfJ47QP4F87 -iis_binary=false -ioutput_prefix=MISS_CADD25.VARS1.T2D -igene_id=ENST00000375663 -iinclusion_list=file-G6qXvjjJ2vfQGPp04ZGf6ygj --name VARS1.anm_all --yes --brief
+# T.B.D
 
 ```
 
@@ -714,7 +690,7 @@ dx run mrcepid-extractvariants --destination results/gene_specific/ -iassociatio
 
 ```{bash}
 
-
+# T.B.D
 
 ```
 
@@ -823,11 +799,11 @@ The following code block shows a simple example of how we load burden tests. Wil
 ```{r load data, fig.height=6, fig.width=15}
 
 # Actually load data and generate plots
-bolt.ret <- load.and.plot.data(file.names = c("ukbb_data/T2D_ExWAS/T2D.bolt.genes.BOLT.stats.tsv.gz"),
+bolt.ret <- load.and.plot.data(file.names = c("ukbb_data/T2D_ExWAS/menopause.bolt.genes.BOLT.stats.tsv.gz"),
                                p.val.col="P_BOLT_LMM_INF",
                                tool.name = "BOLT",
                                AC.col = "AC",
-                               marker.file = "ukbb_data/T2D_ExWAS/T2D.bolt.markers.BOLT.stats.tsv.gz",
+                               marker.file = "ukbb_data/T2D_ExWAS/menopause.bolt.markers.BOLT.stats.tsv.gz",
                                ymax = 60)
 
 # Show all the plots for MAF_01 (can change to AC_1/MAF_1/etc. for additional MAF cutoffs)
