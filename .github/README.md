@@ -27,6 +27,7 @@ The purpose of this Markdown is to document variant processing and QC of the 470
     + [5a. Setting Genetic Data:](#5a-setting-genetic-data-)
       - [WES Samples List](#wes-samples-list)
       - [Define WBA grouping](#define-wba-grouping)
+      - [Running mrcepid-buildgrms](#running-mrcepid-buildgrms)
     + [5b. Setting Covariates](#5b-setting-covariates)
     + [5c. Post-processing of statistics](#5c-post-processing-of-statistics)
     + [5d. Generate Transcript List](#5d-generate-transcript-list)
@@ -44,6 +45,7 @@ The purpose of this Markdown is to document variant processing and QC of the 470
   * [Functions for Loading Data](#functions-for-loading-data)
   * [Functions for Plotting](#functions-for-plotting)
   * [Example Code For Loading and Plotting](#example-code-for-loading-and-plotting)
+
 
 
 # Setup
