@@ -380,19 +380,25 @@ cluster_table <- data.table("n_eid" = names(pca_cluster$cluster), "cluster" = as
 
 pca <- merge(pca, cluster_table, by = "n_eid")
 
-mode_cluster <- table(pca[,cluster])
-mode_cluster <- as.integer(names(mode_cluster[mode_cluster == max(mode_cluster)]))
-
 european_ancestries <- c(1, 1001, 1002, 1003, 6, -3, -1)
+south_asian_ancestries <- c(3, 3001, 3002, 3003, 3004, 6, -3, -1)
+african_ancestries <- c(4, 4001, 4002, 4003, 6, -3, -1)
 
-pca[,"European_ancestry":=if_else(cluster == mode_cluster & (ancestry %in% european_ancestries | is.na(ancestry)), 1, 0)]
+# Note that you may have to set these cluster numbers yourself based on clustering results!
+# This prioritises unknowns to the first cluster checked. I.e. if an individual with unknown (6,-3,-1) is in cluster 2, 
+# they will go to the EUR category, then SAS, then AFR
+pca[,"ancestry":=if_else(cluster == 2 & (ancestry %in% european_ancestries | is.na(ancestry)), "eur", 
+                         if_else(cluster == 4 & (ancestry %in% south_asian_ancestries | is.na(ancestry)), "sas",
+                                 if_else(cluster == 1 & (ancestry %in% african_ancestries | is.na(ancestry)), "afr", 
+                                 as.character(NA))))]
 
 pca[,table(meaning,cluster)]
+pca[,table(meaning,ancestry,useNA = "always")]
 
 ggplot(pca, aes(PC1, PC2, colour = as.factor(cluster))) + geom_point(size = 0.5) + theme.legend
 ggplot(pca, aes(PC3, PC4, colour = as.factor(cluster))) + geom_point(size = 0.5) + theme.legend
 
-fwrite(pca[,c("n_eid","European_ancestry")], 'data_files/ancestry/wba.txt', quote = F, sep = ' ', row.names = F, col.names = T)
+fwrite(pca[,c("n_eid","ancestry")], 'data_files/ancestry/ancestry.txt', quote = F, sep = ' ', row.names = F, col.names = T, na = "NA")
 ```
 
 #### Running mrcepid-buildgrms
@@ -401,7 +407,7 @@ This will generate the required files for running burden tests. Replace the inpu
 
 ```{bash}
 
-dx run mrcepid-buildgrms --destination project_resources/genetics/ -isample_ids_file=file-GFjJ0yjJ0zVb9BK82ZQFkx0y -iwba_file=file-GGJXYf0J0zVbq0GvGbZXpxp8 --priority=normal
+dx run mrcepid-buildgrms --destination project_resources/genetics_v2/ -isample_ids_file=file-GFjJ0yjJ0zVb9BK82ZQFkx0y -iancestry_file=file-GGbPpqQJ0zVf9F0y4fXbyqxJ --priority=normal
 
 ```
 
@@ -658,13 +664,14 @@ This uses the `launch.sh` script located in `./scripts/`. See that file for more
 
 1. tarballs
 2. phenofile(s)
-3. is binary? (must be true/false)
-4. Output prefix
-5. Sex (0/1/2)
-6. Additional covariates file
-7. Additional quantitative covariates in additional covariates file
-8. Additional categorical covariates in additional covariates file
-9. Tool to use (bolt/glm/saige/regenie/staar). Can be 'null' to run all 5 tools or a comma-separated list (e.g. bolt,glm)
+3. Phenoname (can be 'null')
+4. is binary? (must be true/false)
+5. Output prefix
+6. Sex (0/1/2)
+7. Additional covariates file (can be 'null')
+8. Additional quantitative covariates in additional covariates file (can be 'null')
+9. Additional categorical covariates in additional covariates file (can be 'null')
+10. Tool to use (bolt/glm/saige/regenie/staar). Can be 'null' to run all 5 tools or a comma-separated list (e.g. bolt,glm)
 
 **NOTE**: To use this script, you will need to replace the default file settings provided as part of the "DEFAULT_COVARS" variable in the `./launch.sh` script.
 
@@ -675,7 +682,11 @@ dx ls -l collapsed_variants/*.tar.gz |  grep 'MAF_01' | perl -ane 'chomp $_; if 
 dx upload variant_mask_list.txt --destination tarball_lists/
 
 # This will launch a single burden test using BOLT. Additional tools can be run by modifying the final parameter (e.g. bolt,saige,staar)
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGJYZBjJJy81kJqV7v3YJPkv false menopause 0 null null null bolt
+./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur 0 null null null bolt file-GGbZFKQJP7J5223J4v6k49P3 null # EUR Related
+./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_sas 0 null null null bolt file-GGbZFPjJP7J0vZ6f4v65G4Zj null # SAS Related
+./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_afr 0 null null null bolt file-GGbZFQjJP7J92Xq94x9bXJXG null # AFR Related
+./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_new 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 file-GGbQ3yQJ0zVxXg8y4yY2ByXZ # New (470k samples) only
+./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_all 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 null # All (Eur/Sas/Afr/Admixed) Related
 
 ```
 
@@ -683,16 +694,68 @@ dx upload variant_mask_list.txt --destination tarball_lists/
 
 ```{bash}
 
-# T.B.D
+dx run mrcepid-runassociationtesting --instance-type mem3_ssd1_v2_x16 --priority normal --destination results/ -imode='extract' -ioutput_prefix="menopause" -iinput_args='--gene_ids BRCA2 CHEK2 ZNF518A --association_tarballs file-GGJZ2F8J0zVpJfYj3K3095Q9 --phenofile  --sex 0 --inclusion_list file-GGJb118J80QpZGk5Fy4q6bJZ --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGPKqYQJJy8Gv2XKJ3v3KK85 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg'
 
 ```
 
 
 #### PheWAS
 
+See below for how the input list of cancer phenotypes was created
+
 ```{bash}
 
-# T.B.D
+dx run mrcepid-runassociationtesting --instance-type mem3_ssd1_v2_x16 --priority normal --destination results/ -imode='phewas' -ioutput_prefix="menopause_phewas" -iinput_args='--gene_ids BRCA2 CHEK2 ZNF518A --association_tarballs file-GGJZ2F8J0zVpJfYj3K3095Q9 --phenofile file-GGjgvfQJJy8F3Pvb1K8Qqx3x --sex 0 --inclusion_list file-GGbZFKQJP7J5223J4v6k49P3 --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGZkYk8JJy8GFjjF6kYG01g8 --sparse_grm file-GGbZPz8JP7J4vVXp4vj5JGyx --sparse_grm_sample file-GGbZPzjJP7JF98v34vxg8QkV --is_binary'
+
+```
+
+# Generating Medical Phenotypes
+
+## Downloading And Processing Phenotypes
+
+Medical phenotypes were generated in several steps:
+
+1. Download first occurence variables using a JupyterLab notebook on DNANexus: `python_notebooks/download_first_occurence.ipynb`
+2. Download summary diagnoses using a JupyterLab notebook on DNANexus: `python_notebooks/download_icd_data.ipynb`
+    * Cancer ICD-10
+    * Cancer ICD-9
+    * HES ICD-10
+    * HES ICD-9
+    * Primary Death ICD-10
+    * Secondary Death ICD_10 
+3. Merge above information, add age of onset information, and convert from ICD-9 to ICD-10: `python_notebooks/icd9_to10.Rmd`
+4. Remove duplicate codes and create final table of all conditions for all participants: `scripts/parse_ICD10_search_table.py`
+
+The last step was run via the applet that I wrote called 'script_runner':
+
+```{bash process phenos}
+
+dx run script_runner -iscript=parse_ICD10_search_table.py -irequired_files=file-GG3jKp8JJy89gGbQ3Zb5561Q
+
+```
+
+## Creating Phenofiles
+
+The script `scripts/parse_ICD10.py` can then be used to generate phenofiles for associationtesting:
+
+```{bash}
+
+# Binary phenotype for an ICD-10 grouping (note lack of 'Block' in -d flag):
+# C81-C96 = Blood Cancers
+# D46 = Myelodysplastic Syndrome
+# B20-B24 = HIV/AIDS
+./scripts/parse_ICD10.py -d C81-C96 D46 B20-B24 K743 K744 K745 K746 -i data_files/medical_data/coding19.tsv -p data_files/medical_data/vital_stats.tsv -c data_files/medical_data/processed_icd10.tsv
+
+# Time-to-event phenotype for a single ICD-10 code:
+# Recommended to use the --na flag for ANY tte analyses due to ambiguity in individuals with a code but without an incidence age
+./scripts/parse_ICD10.py -d 'F29' -i data_files/medical_data/coding19.tsv -p data_files/medical_data/vital_stats.tsv -c data_files/medical_data/processed_icd10.tsv --tte --na
+
+# Binary phenotype for multiple codes at once:
+# We use NA here to set individuals with F42 but NOT F429 to NA as we do not know the subtype 
+./scripts/parse_ICD10.py -d F20 F30 F429 -i data_files/medical_data/coding19.tsv -p data_files/medical_data/vital_stats.tsv -c data_files/medical_data/processed_icd10.tsv --na --output mhd.pheno
+
+# All cancer codes:
+./scripts/parse_ICD10.py -d "C00 C01 C02 C03 C04 C05 C06 C07 C08 C09 C10 C11 C12 C13 C14 C15 C16 C17 C18 C19 C20 C21 C22 C23 C24 C25 C26 C30 C31 C32 C33 C34 C37 C38 C39 C40 C41 C42 C43 C44 C45 C46 C47 C48 C49 C50 C51 C52 C53 C54 C55 C56 C57 C58 C60 C61 C62 C63 C64 C65 C66 C67 C68 C69 C70 C71 C72 C73 C74 C75 C76 C77 C78 C79 C80 C81 C82 C83 C84 C85 C86 C88 C90 C91 C92 C93 C94 C95 C96 C97" -i data_files/medical_data/coding19.tsv -p data_files/medical_data/vital_stats.tsv -c data_files/medical_data/processed_icd10.tsv -o cancer_codes.pheno
 
 ```
 
@@ -801,16 +864,15 @@ The following code block shows a simple example of how we load burden tests. Wil
 ```{r load data, fig.height=6, fig.width=15}
 
 # Actually load data and generate plots
-bolt.ret <- load.and.plot.data(file.names = c("ukbb_data/T2D_ExWAS/menopause.bolt.genes.BOLT.stats.tsv.gz"),
-                               p.val.col="P_BOLT_LMM_INF",
+bolt.ret <- load.and.plot.data(file.names = c("../scratch/menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
+                               p.val.col="P_BOLT_LMM",
                                tool.name = "BOLT",
                                AC.col = "AC",
-                               marker.file = "ukbb_data/T2D_ExWAS/menopause.bolt.markers.BOLT.stats.tsv.gz",
-                               ymax = 60)
+                               marker.file = "../scratch/menopause_34.bolt.markers.BOLT.stats.tsv.gz",
+                               ymax = 25)
 
 # Show all the plots for MAF_01 (can change to AC_1/MAF_1/etc. for additional MAF cutoffs)
 for (mask in names(bolt.ret$plots)[grepl("MAF_01", names(bolt.ret$plots))]) {
   print(bolt.ret$plots[[mask]]$comb.plot)
 }
-
 ```

@@ -1,0 +1,345 @@
+---
+title: "ICD10"
+output: html_document
+---
+
+# Startup
+
+The goal of this notebook is to create a one-stop shop for medical codings in the UK Biobank. This was partially done by the UK Biobank via the first occurrence variable.
+
+```{r startup}
+
+library(data.table)
+library(stringr)
+library(tidyr)
+library(lubridate)
+
+# reticulate is not installed by default and is required by the python interpreter in RStudio
+if (!require(reticulate)) install.packages('reticulate')
+
+```
+
+# Download Requisite Files
+
+See python notebooks in the folders below for how data was downloaded from the UKBB phenotype database. Fields included are:
+
+* First Occurrence Data (fields 130000 - 132605, not inclusive)
+* Hospital Episode Statistics
+    * ICD-10 (41270)
+    * ICD-9 (41271)
+* Cancer Registry
+    * ICD-10 (40006)
+    * ICD-9 (40013)
+* Death Registry
+    * Primary ICD10 (40001)
+    * Secondary ICD10 (40002)
+
+**Note**: I have not retrieved self-reported conditions as they are presumably better mapped to specific ICD-10 code by the
+team that built the first occurrence field(s).
+
+For ICD9 -> ICD10 mappings, I downloaded the file provided by the US CMS from this webpage and uploaded to DNANexus:
+
+https://www.cms.gov/Medicare/Coding/ICD10/2018-ICD-10-CM-and-GEMs
+
+```{bash dx downloads}
+
+# Download summary tables
+dx download phenotypes/summary_diagnoses/40001_extracted.tsv
+dx download phenotypes/summary_diagnoses/40002_extracted.tsv
+dx download phenotypes/summary_diagnoses/40006_extracted.tsv
+dx download phenotypes/summary_diagnoses/40013_extracted.tsv
+dx download phenotypes/summary_diagnoses/41270_extracted.tsv
+dx download phenotypes/summary_diagnoses/41271_extracted.tsv
+
+dx download phenotypes/first_occurrence/first_incidence_table*.tsv
+
+# Download ICD9 conversion mapping
+dx download phenotypes/summary_diagnoses/2018_I9gem.txt
+
+# Download the full list of individuals with WES data
+dx download project-GFPBQv8J0zVvBX9XJyqyqYz1:file-GFjJ0yjJ0zVb9BK82ZQFkx0y
+
+# Download Vital Stats:
+dx download phenotypes/base_covariates/vital_stats.tsv
+
+```
+
+# Function for Converting ICD9 to ICD10
+
+```{r convert ICD codes}
+
+icd9_to_icd10 <- fread("2018_I9gem.txt",col.names = c("ICD9","ICD10","flags"))
+
+convert_icd9_to_icd10 <- function(convert_table) {
+
+    convert_table_merge <- merge(convert_table, icd9_to_icd10, by = "ICD9", all.x = T)
+    
+    failed_convert_table_merge <- convert_table_merge[is.na(ICD10)]
+    correct_convert_table_merge <- convert_table_merge[!is.na(ICD10)]
+    
+    # Now trim off the correct number of places...
+    fix_failed <- function(code) {
+        mapped_codes <- icd9_to_icd10[str_starts(ICD9, code)]
+        
+        for (i in c(3:10)) {
+            col_name <- paste0('str', i)
+            mapped_codes[,eval(col_name):=str_trunc(string = ICD10, width = i, side = 'right', ellipsis = '')]
+        }
+        
+        correct_code <- NULL
+        for (i in c(10:3)) {
+            col_name <- paste0('str', i)
+            if (length(mapped_codes[,unique(get(col_name))]) == 1) {
+                correct_code <- mapped_codes[,unique(get(col_name))]
+                break
+            }
+            
+        }
+        
+        return(correct_code)
+        
+    }
+    
+    failed_codes <- data.table(ICD9=unique(failed_convert_table_merge[,ICD9]))
+    failed_codes[,correct_code:=fix_failed(ICD9), by = 1:nrow(failed_codes)]
+    
+    # And merge back in...
+    failed_convert_table_merge <- merge(failed_convert_table_merge, failed_codes, by = "ICD9")[,c('ICD9', 'eid','correct_code', 'flags')]
+    setnames(failed_convert_table_merge, 'correct_code', 'ICD10') # I do it this way because ICD10 is still in the failed_cc table
+    
+    # Get unique codes
+    correct_convert_table_merge[,key:=paste(ICD9, eid, sep = "_")]
+    correct_convert_table_merge[,dummy:=1]
+    counts <- correct_convert_table_merge[,sum(dummy),by="key"]
+    
+    # Spit out code/individual pairs that mapped to more than one ICD10 code
+    duplicate_convert_table_merge <- unique(correct_convert_table_merge[key %in% counts[V1 > 1,key], c("ICD9","eid")])
+    correct_convert_table_merge <- correct_convert_table_merge[key %in% counts[V1 == 1,key]]
+    
+    # Now try and rescue some of the codes by using the same 'walking up the ICD10 tree' logic that we use above for failed codes
+    failed_codes <- data.table(ICD9=unique(duplicate_convert_table_merge[,ICD9]))
+    failed_codes[,ICD10:=fix_failed(ICD9), by = 1:nrow(failed_codes)]
+    
+    # Merge bac in
+    duplicate_convert_table_merge <- merge(duplicate_convert_table_merge, failed_codes, by = "ICD9")[,c('ICD9', 'eid','ICD10')]
+    
+    # Now put everything back together...
+    translated_convert_table <- rbind(correct_convert_table_merge[,c('ICD9','eid','ICD10')], # Codes that merged with no problems
+                                failed_convert_table_merge[,c('ICD9','eid','ICD10')], # Codes that didn't map at all
+                                duplicate_convert_table_merge[,c('ICD9','eid','ICD10')]) # Codes that found multiple ICD10 codes
+    
+    # Give summary number:
+    n_failed <- nrow(translated_convert_table[is.na(ICD10)])
+    n_total <- nrow(convert_table)
+    cat(paste0('Prop. of failed codes after rescue protocol: ', 
+               sprintf(fmt = '%0.2f%%', ((n_failed / n_total) * 100)),
+               ' (', n_failed, ' / ', n_total, ')'))
+    
+    return(translated_convert_table)
+}
+
+```
+
+# Import Files
+
+## First Occurrence
+
+### Import FO Data
+
+```{r import FO}
+
+# Have to import as character
+file_nums = c(1:12)
+
+first_occurrence <- data.table()
+
+for (num in file_nums) {
+    
+    curr_table <- fread(paste0('first_incidence_table',num,'.tsv'),colClasses = 'character')
+    curr_table <- data.table(pivot_longer(curr_table,cols = names(curr_table)[2:ncol(curr_table)],names_to='code',values_drop_na=TRUE))
+    first_occurrence <- rbind(first_occurrence, curr_table)
+    
+}
+
+setnames(first_occurrence, 'code', 'ICD10')
+
+```
+
+### Add Age at Incidence
+
+```{r}
+
+max_date <- vital_stats[,max(dod,na.rm = T)]
+
+vital_stats <- fread("vital_stats.tsv", colClasses = c('eid' = 'character'))
+vital_stats[,current_age:=ifelse(is.na(dod),
+                                 time_length(difftime(max_date, dob), "years"),
+                                 time_length(difftime(dod, dob), "years"))]
+
+# Merge first_occurance data special codes and replace with DoB for most cases:
+first_occurrence <- merge(first_occurrence, vital_stats, by = 'eid', all.x=T)
+
+# Correct DoB stats
+first_occurrence <- first_occurrence[value != 'Code has event date in the future and is presumed to be a place-holder or other system default']
+first_occurrence[,value:=ifelse(value == "Code has event date after participant's date of birth and falls in the same calendar year as date of birth",dob,
+                                ifelse(value == "Code has event date matching participant's date of birth", dob, value))]
+first_occurrence[,value:=as.Date(value)] # Have to finally convert to date now that we have fixed these issues
+
+# Drop codes after the last death registry refresh (not many):
+first_occurrence <- first_occurrence[value <= max_date]
+
+# Drop codes that occur after patient death (not many):
+first_occurrence <- first_occurrence[is.na(dod) | value <= dod]
+
+# Calculate age at incidence:
+first_occurrence[,age_at_incidence:=time_length(difftime(value, dob), "years")]
+```
+
+## HES
+
+### Convert to Sparse Format
+
+You will need to install the 'reticulate' R package to enable this code block to actually function. Oh, and also pray to whatever god you believe in.
+
+```{python process HES, include=FALSE}
+
+import ast
+
+with open('41270_extracted.tsv', 'r') as hes:
+    icd_output = open('41270_processed.tsv', 'w')
+    for line in hes:
+        line = line.rstrip()
+        data = line.split('\t')
+        eid = data[0]
+        if data[1] != 'p41270' and data[1] != 'NA':
+            codes = ast.literal_eval(data[1])
+            for code in codes:
+                written = icd_output.write(f'{eid}\t{code}\n')
+            
+icd_output.close()
+
+with open('41271_extracted.tsv', 'r') as hes:
+    icd_output = open('41271_processed.tsv', 'w')
+    for line in hes:
+        line = line.rstrip()
+        data = line.split('\t')
+        eid = data[0]
+        if data[1] != 'p41271' and data[1] != 'NA':
+            codes = ast.literal_eval(data[1])
+            for code in codes:
+                written = icd_output.write(f'{eid}\t{code}\n')
+            
+icd_output.close()
+
+```
+
+### Import
+
+```{r import HES}
+
+hes_ICD10 <- fread("41270_processed.tsv", col.names = c("eid","ICD10"), colClasses = c("character","character"))
+hes_ICD9 <- fread("41271_processed.tsv", col.names = c("eid","ICD9"), colClasses = c("character","character"))
+
+# Convert ICD9 -> 10
+converted_hes_ICD9 <- convert_icd9_to_icd10(hes_ICD9)
+
+hes <- unique(rbind(hes_ICD10, converted_hes_ICD9[!is.na(ICD10),c("eid","ICD10")]))
+```
+
+## Death Records
+
+```{r import death records}
+
+primary_dr <- fread("40001_extracted.tsv", colClasses = 'character')
+primary_dr <- data.table(pivot_longer(primary_dr, cols = -eid,values_drop_na = T))[,c("eid","value")]
+setnames(primary_dr,'value','ICD10')
+
+secondary_dr <- fread("40002_extracted.tsv", colClasses = 'character')
+secondary_dr <- data.table(pivot_longer(secondary_dr, cols = -eid,values_drop_na = T))[,c("eid","value")]
+setnames(secondary_dr,'value','ICD10')
+
+dr <- rbind(primary_dr, secondary_dr)
+```
+
+## Cancer Codes
+
+```{r import cancer codes}
+
+cc_ICD10 <- fread("40006_extracted.tsv", colClasses = 'character')
+cc_ICD10 <- unique(data.table(pivot_longer(cc_ICD10,cols = -eid, values_drop_na = T))[,c("eid","value")])
+setnames(cc_ICD10,'value','ICD10')
+
+cc_ICD9 <- fread("40013_extracted.tsv", colClasses = 'character')
+cc_ICD9 <- unique(data.table(pivot_longer(cc_ICD9,cols = -eid, values_drop_na = T))[,c("eid","value")])
+setnames(cc_ICD9,'value','ICD9')
+
+# Convert ICD9 -> 10
+converted_cc_ICD9 <- convert_icd9_to_icd10(cc_ICD9)
+
+# Mash together ICD9/ICD10
+cc <- unique(rbind(cc_ICD10, converted_cc_ICD9[!is.na(ICD10),c("eid","ICD10")]))
+
+```
+
+# Make Database
+
+Tables to merge:
+
+* First Occurrence (`first_occurrence`) - considered PRIMARY record and is the basis for all other records
+* Hospital Episode Stats (`hes`) - Merged ICD10 & ICD9 records
+* Death Records (`dr`) - Merged Primary and Secondary causes of death (no ICD9 records)
+* Cancer Codes (`cc`) - Merged ICD10 & ICD9 records
+
+## Ingest Samples
+
+```{r}
+
+# Read in all WES samples
+individuals <- fread('wes_samples.470k.txt', colClasses = 'character', col.names = 'eid')
+
+# Calculate number of records per-person (unsure if actually important...)
+add_N <- function(table_to_use, name) {
+    N_counts <- table_to_use[,.N,by=eid]
+    merged <- merge(individuals, N_counts, by = 'eid', all.x = T)
+    merged[,N:=ifelse(is.na(N), 0, N)]
+    setnames(merged, 'N', name)
+    
+    return(merged)
+}
+
+individuals <- add_N(first_occurrence, 'N_fo')
+individuals <- add_N(hes, 'N_hes')
+individuals <- add_N(dr, 'N_dr')
+individuals <- add_N(cc, 'N_cc')
+
+individuals[,N_recs:=sum(N_fo,N_hes,N_dr,N_cc), by = 1:nrow(individuals)]
+
+```
+
+## Merge FO Data
+
+Logic:
+
+- Go through EVERY FO record and ask if it exists in any of the other three tables.
+- If the record exists, check if it is lower on the tree (i.e. longer code) and replace it in the FO data
+
+```{r}
+
+search_table <- unique(rbind(first_occurrence[,c("eid","ICD10")], 
+                             hes[,c("eid","ICD10")], 
+                             dr[,c("eid","ICD10")], 
+                             cc[,c("eid","ICD10")]))
+
+fwrite(search_table,"search_table.tsv.gz",sep="\t",col.names=T, row.names = F, quote = F, na="NA")
+
+
+```
+
+
+
+
+
+
+
+
+

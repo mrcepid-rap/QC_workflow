@@ -2,13 +2,17 @@
 
 TAR=$1
 PHENO=$2
-BIN=$3
-OUT=$4
-SEX=$5
-COVARFILE=$6
-QUANTCOVAR=$7
-CATCOVAR=$8
-TOOL=$9
+PHENONAME=$3
+BIN=$4
+OUT=$5
+SEX=$6
+COVARFILE=$7
+QUANTCOVAR=$8
+CATCOVAR=$9
+TOOL=${10}
+INCLUSION=${11}
+EXCLUSION=${12}
+
 
 if [[ "$BIN" == "true" ]]
 then
@@ -41,6 +45,21 @@ else
     fi
 fi
 
+if [[ "$PHENONAME" != "null" ]]
+then
+   APPEND="$APPEND --phenoname $PHENONAME"
+fi
+
+if [[ "$INCLUSION" != "null" ]]
+then
+   APPEND="$APPEND --inclusion_list $INCLUSION"
+fi
+
+if [[ "$EXCLUSION" != "null" ]]
+then
+   APPEND="$APPEND --exclusion_list $EXCLUSION"
+fi
+
 if [[ "$TOOL" = "null" ]]
 then
     TOOL=("bolt" "saige" "staar" "glm" "regenie")
@@ -48,7 +67,7 @@ else
     TOOL=$(echo $TOOL | tr "," "\n")
 fi
 
-DEFAULT_COVARS="--transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGPKqYQJJy8Gv2XKJ3v3KK85 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg --array_bed_file file-GGJZzg0J80QQgzj2Jk7qX8z4 --array_fam_file file-GGJb0zQJ80QbJ1fgJQpFQpK6 --array_bim_file file-GGJb100J80QVz6627f712Z5G --low_MAC_list file-GGJb138J80QZK57z7fBYjgjv --sparse_grm file-GGJb128J80Qy4fG17p2yKGFq --sparse_grm_sample file-GGJb12jJ80QX0ZJXJ4jxBfGX --inclusion_list file-GGJb118J80QpZGk5Fy4q6bJZ"
+DEFAULT_COVARS="--transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ --base_covariates file-GGZkYk8JJy8GFjjF6kYG01g8 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg --array_bed_file file-GGbZKfjJP7J5223J4v6k49j0 --array_fam_file file-GGbZPy0JP7JJBjkG4vbPqKk9 --array_bim_file file-GGbZPyQJP7J82gv54x6F3Kjq --low_MAC_list file-GGbZQ08JP7JJPBbP4vfF9X25 --sparse_grm file-GGbZPz8JP7J4vVXp4vj5JGyx --sparse_grm_sample file-GGbZPzjJP7JF98v34vxg8QkV"
 
 if [[ " ${TOOL[*]} " =~ "bolt" ]]
 then
