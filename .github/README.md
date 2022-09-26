@@ -864,11 +864,11 @@ The following code block shows a simple example of how we load burden tests. Wil
 ```{r load data, fig.height=6, fig.width=15}
 
 # Actually load data and generate plots
-bolt.ret <- load.and.plot.data(file.names = c("../scratch/menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
+bolt.ret <- load.and.plot.data(file.names = c("menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
                                p.val.col="P_BOLT_LMM",
                                tool.name = "BOLT",
                                AC.col = "AC",
-                               marker.file = "../scratch/menopause_34.bolt.markers.BOLT.stats.tsv.gz",
+                               marker.file = "menopause_34.bolt.markers.BOLT.stats.tsv.gz",
                                ymax = 25)
 
 # Show all the plots for MAF_01 (can change to AC_1/MAF_1/etc. for additional MAF cutoffs)
