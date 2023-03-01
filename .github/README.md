@@ -239,8 +239,8 @@ perl -e 'for my $chr (1..22,"X","Y") {print "dx run mrcepid-makebgen --destinati
 The input `bgen_index` to mrcepid-runassociationtesting is a tab-delimited file that looks like the following:
 
 ```
-chrom   vep   bgen    index   sample
-chr1    file-1234567890ABCDEFGH   file-0987654321ABCDEFGH   file-1234567890HGFEDCBA   file-0987654321HGFEDCBA
+chrom vep_dxid bgen_dxid bgen_index_dxid sample_dxid
+1    file-1234567890ABCDEFGH   file-0987654321ABCDEFGH   file-1234567890HGFEDCBA   file-0987654321HGFEDCBA
 ```
 
 The following script should automate the production of this file:
