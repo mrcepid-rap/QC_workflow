@@ -1,8 +1,11 @@
 import re
 import csv
+import sys
 import dxpy
 
-found_files = dxpy.find_data_objects(classname='file', folder='/filtered_bgen/',)
+args = sys.argv
+
+found_files = dxpy.find_data_objects(classname='file', folder=args[1])
 
 bgen_index = {}
 

@@ -251,7 +251,7 @@ Remember to upload the file to DNANexus like:
 
 `dx upload --destination filtered_bgen/ bgen_locs.tsv`
 
-# 4b. Running Collapse Variants
+### 4b. Running Collapse Variants
 
 Here we generate a list of variant types that we want to collapse on to generate sets of variants for associationtesting. Obviously these can be tweaked, but here I am generating a set of initial variants useful for most scenarios.
 
@@ -276,12 +276,12 @@ for (maf in names(MAFs)) {
   
   for (csq in names(CSQs)) {
     
-    base_command <- 'dx run mrcepid-collapsevariants --priority normal --destination collapsed_variants --brief --yes -ibgen_index=file-GFzfyyQJ0zVqXZQBK4592QQg'
+    base_command <- 'dx run mrcepid-collapsevariants --priority normal --destination collapsed_variants/ --brief --yes -ibgen_index=file-GFzfyyQJ0zVqXZQBK4592QQg'
     expression <- paste0("'",paste(MAFs[maf], CSQs[csq], 'FILTER=="PASS"', sep = " & "), "'")
     filename <- paste(csq, maf, sep = '-')
     cat(paste(base_command, # standard input for all runs
               paste0('-ifiltering_expression=',expression), # filtering expression
-              paste0('-ifile_prefix=', filename), # file name
+              paste0('-ioutput_prefix=', filename), # file name
               sep = ' '))
     cat('\n')
     
@@ -540,9 +540,10 @@ Note that the vep.tsv.gz file cannot be included in this repository, so you will
 
 vep.stats <- fread("data_files/annotations/470k_vep.sorted.tsv.gz")
 vep.stats[,dummy:=1]
-counts <- vep.stats[PARSED_CSQ=="SYN" & FILTER == "PASS" & MAF < 1e-3,sum(dummy),by=c("ENST")]
+counts <- vep.stats[FILTER == "PASS" & MAF < 1e-3 & (REVEL >= 0.5 | is.na(REVEL)),sum(dummy),by=c("ENST", "PARSED_CSQ")]
+counts <- counts[PARSED_CSQ %in% c('SYN','PTV','MISSENSE')]
 
-transcripts.annotated <- merge(counts,transcripts,by="ENST",all.y=T)
+transcripts.annotated <- merge(counts[PARSED_CSQ == 'SYN'],transcripts,by="ENST",all.y=T)
 transcripts.annotated[,syn.count:=if_else(is.na(V1),0,V1)]
 transcripts.annotated[,V1:=NULL]
 transcripts.annotated[,coord:=paste0("chr", chrom,":",start,"-",end)]
@@ -551,6 +552,24 @@ transcripts.annotated[,coord:=paste0("chr", chrom,":",start,"-",end)]
 transcripts.annotated[,highlight:=if_else(syn.count == 0, T, F)]
 
 ggplot(transcripts.annotated,aes(cds_length,syn.count,colour=highlight)) + geom_point(size = 0.5) + xlim(0,30000) + ylim(0,3100) + geom_abline(slope = 0.08062,intercept=13.25662) + theme
+
+setnames(counts, "V1", "n.vars")
+nb.model <- glm.nb(n.vars ~ PARSED_CSQ, data = counts)
+
+coef_table <- data.table(tidy(nb.model))
+
+sim <- data.table("count"=c(rnbinom(nrow(counts[PARSED_CSQ == 'PTV']), size=nb.model$theta, mu=exp(coef_table[term %in% c('(Intercept)','PARSED_CSQPTV'), sum(estimate)])),
+                            rnbinom(nrow(counts[PARSED_CSQ == 'SYN']), size=nb.model$theta, mu=exp(coef_table[term %in% c('(Intercept)','PARSED_CSQSYN'), sum(estimate)])),
+                            rnbinom(nrow(counts[PARSED_CSQ == 'MISSENSE']), size=nb.model$theta, mu=exp(coef_table[term %in% c('(Intercept)'), sum(estimate)]))),
+                  'PARSED_CSQ'=c(rep('PTV', nrow(counts[PARSED_CSQ == 'PTV'])),
+                                 rep('SYN', nrow(counts[PARSED_CSQ == 'SYN'])),
+                                 rep('MISSENSE', nrow(counts[PARSED_CSQ == 'MISSENSE']))))
+sim[,dummy:=1]
+sim <- sim[,sum(dummy),by=c("count","PARSED_CSQ")]
+
+ggplot(counts[PARSED_CSQ == 'PTV'], aes(n.vars)) + geom_histogram(binwidth=1) + geom_point(inherit.aes=F, data=sim[PARSED_CSQ == 'PTV'], aes(count, V1)) + xlim(0,1000) + ggtitle('PTV') + theme
+ggplot(counts[PARSED_CSQ == 'SYN'], aes(n.vars)) + geom_histogram(binwidth=1) + geom_point(inherit.aes=F, data=sim[PARSED_CSQ == 'SYN'], aes(count, V1)) + xlim(0,1000) + ggtitle('SYN') + theme
+ggplot(counts[PARSED_CSQ == 'MISSENSE'], aes(n.vars)) + geom_histogram(binwidth=1) + geom_point(inherit.aes=F, data=sim[PARSED_CSQ == 'MISSENSE'], aes(count, V1)) + xlim(0,1000) + ggtitle('MISSENSE') + theme
 ```
 
 #### Identifying Genes with 0 Variants
@@ -609,24 +628,24 @@ ggplot(per.cat.fail,aes(chrom, V1, fill=fail.cat, group=fail.cat)) + geom_col() 
 
 ```{r sample counts}
 
-wba <- fread("data_files/ancestry/wba.txt")
-setnames(wba,"n_eid","eid")
-wba[,eid:=as.character(eid)]
+ancestry <- fread("data_files/ancestry/ancestry.txt")
+setnames(ancestry,"n_eid","eid")
+ancestry[,eid:=as.character(eid)]
 
-indv.counts <- fread("data_files/470k_indv_counts.tsv.gz")
+indv.counts <- fread("data_files/annotations/470k_indv_counts.tsv.gz")
 indv.counts[,eid:=as.character(eid)]
 
-indv.counts <- merge(indv.counts,wba[,c("eid","European_ancestry")],by="eid")
+indv.counts <- merge(indv.counts,ancestry,by="eid")
 
-ggplot(indv.counts,aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=80) + theme
+high_syn <- quantile(rpois(n = nrow(indv.counts), lambda = median(indv.counts[,SYN])), probs = c(0.003,0.5,0.997))
+ggplot(indv.counts,aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=high_syn) + theme
 
-ggplot(indv.counts[European_ancestry == 1],aes(PTV)) + geom_histogram(binwidth=1) + theme
-ggplot(indv.counts[European_ancestry == 1],aes(MISSENSE)) + geom_histogram(binwidth=1) + theme
-ggplot(indv.counts[European_ancestry == 1],aes(SYN)) + geom_histogram(binwidth=1) + xlim(0,160) + theme
+ggplot(indv.counts[ancestry == 'eur'],aes(PTV)) + geom_histogram(binwidth=1) + theme
+ggplot(indv.counts[ancestry == 'eur'],aes(MISSENSE)) + geom_histogram(binwidth=1) + theme
+ggplot(indv.counts[ancestry == 'eur'],aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=high_syn) + xlim(0,160) + theme
 
-quantile(rpois(n = 469430, lambda = 80), probs = c(0.997))
-indv.counts[,high.SYN:=if_else(SYN>quantile(rpois(n = 453342, lambda = 80), probs = c(0.995))[[1]],1,0)]
-table(indv.counts[,c("high.SYN","European_ancestry")])
+indv.counts[,high.SYN:=if_else(SYN>high_syn[[3]],T,F)]
+table(indv.counts[,c("high.SYN","ancestry")])
 ```
 
 #### Writing Transcript File for DNANexus
@@ -682,11 +701,16 @@ dx ls -l collapsed_variants/*.tar.gz |  grep 'MAF_01' | perl -ane 'chomp $_; if 
 dx upload variant_mask_list.txt --destination tarball_lists/
 
 # This will launch a single burden test using BOLT. Additional tools can be run by modifying the final parameter (e.g. bolt,saige,staar)
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur 0 null null null bolt file-GGbZFKQJP7J5223J4v6k49P3 null # EUR Related
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_sas 0 null null null bolt file-GGbZFPjJP7J0vZ6f4v65G4Zj null # SAS Related
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_afr 0 null null null bolt file-GGbZFQjJP7J92Xq94x9bXJXG null # AFR Related
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_new 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 file-GGbQ3yQJ0zVxXg8y4yY2ByXZ # New (470k samples) only
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_all 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 null # All (Eur/Sas/Afr/Admixed) Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur 0 null null null bolt file-GGbZFKQJP7J5223J4v6k49P3 null # EUR Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_sas 0 null null null bolt file-GGbZFPjJP7J0vZ6f4v65G4Zj null # SAS Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_afr 0 null null null bolt file-GGbZFQjJP7J92Xq94x9bXJXG null # AFR Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_new 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 file-GGbQ3yQJ0zVxXg8y4yY2ByXZ # New (470k samples) only
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_all 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 null # All (Eur/Sas/Afr/Admixed) Related
+
+
+# REGENIE tests
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur_full_snps 0 null null null regenie file-GGbZFKQJP7J5223J4v6k49P3 null
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur_rel_snps 0 null null null regenie file-GGbZFKQJP7J5223J4v6k49P3 null
 
 ```
 
@@ -694,7 +718,7 @@ dx upload variant_mask_list.txt --destination tarball_lists/
 
 ```{bash}
 
-dx run mrcepid-runassociationtesting --instance-type mem3_ssd1_v2_x16 --priority normal --destination results/ -imode='extract' -ioutput_prefix="menopause" -iinput_args='--gene_ids BRCA2 CHEK2 ZNF518A --association_tarballs file-GGJZ2F8J0zVpJfYj3K3095Q9 --phenofile  --sex 0 --inclusion_list file-GGJb118J80QpZGk5Fy4q6bJZ --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGPKqYQJJy8Gv2XKJ3v3KK85 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg'
+dx run mrcepid-runassociationtesting --instance-type mem3_ssd1_v2_x16 --priority normal --destination results/ -imode='extract' -ioutput_prefix="menopause" -iinput_args='--gene_ids BRCA2 CHEK2 ZNF518A --association_tarballs file-GGJZ2F8J0zVpJfYj3K3095Q9 --phenofile  --sex 0 --inclusion_list file-GGJb118J80QpZGk5Fy4q6bJZ --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGPKqYQJJy8Gv2XKJ3v3KK85 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg --sparse_grm file-GGbZPz8JP7J4vVXp4vj5JGyx --sparse_grm_sample file-GGbZPzjJP7JF98v34vxg8QkV'
 
 ```
 
@@ -864,15 +888,36 @@ The following code block shows a simple example of how we load burden tests. Wil
 ```{r load data, fig.height=6, fig.width=15}
 
 # Actually load data and generate plots
-bolt.ret <- load.and.plot.data(file.names = c("menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
+bolt.ret <- load.and.plot.data(file.names = c("../scratch/menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
                                p.val.col="P_BOLT_LMM",
                                tool.name = "BOLT",
                                AC.col = "AC",
-                               marker.file = "menopause_34.bolt.markers.BOLT.stats.tsv.gz",
+                               marker.file = "../scratch/menopause_34.bolt.markers.BOLT.stats.tsv.gz",
                                ymax = 25)
 
 # Show all the plots for MAF_01 (can change to AC_1/MAF_1/etc. for additional MAF cutoffs)
 for (mask in names(bolt.ret$plots)[grepl("MAF_01", names(bolt.ret$plots))]) {
   print(bolt.ret$plots[[mask]]$comb.plot)
 }
+
+og_meno <- fread('meno_raw')
+og_meno <- merge(og_meno, bolt.ret$gene.table, by=c("SYMBOL","MASK"))
+og_meno[,log.p.og:=-log10(p.og)]
+
+ggplot(og_meno, aes(log.p.og, log.p)) + geom_point() + scale_x_continuous(name="450K log10p",limits = c(0,22)) + scale_y_continuous(name="470k log10p",limits=c(0,22)) + geom_text(aes(label=paste(SYMBOL,MASK,sep="\n")),size = 2, hjust=0, position=position_jitter(width=1,height=1)) + geom_abline(slope = 1,linetype=2,colour="red") + theme
+
+og_meno[,diff_AC:=AC - og.AC]
+
+count.old <- 106973
+count.new <- 110983
+
+og_meno[,diff_chi:=chisq.test(matrix(data = c(og.AC, AC, count.old, count.new), nrow=2,ncol=2))$p.value,by=1:nrow(og_meno)]
+
+ggplot(og_meno, aes(SYMBOL, diff_AC, group = interaction(SYMBOL, MASK), colour=MASK)) +
+  geom_point(position=position_dodge(width=0.5), size=2) +
+  geom_text(aes(y=diff_AC + 1, label=sprintf('p=%0.2f',diff_chi)), position = position_dodge(width=0.5)) +
+  scale_y_continuous(name = "ΔAC", breaks = seq(0,30,by=)) +
+  scale_x_discrete(name = "") +
+  coord_capped_cart(left = 'none', bottom=brackets_horizontal(tick.length = 0)) +
+  theme.legend + theme(panel.grid.major.x=element_blank())
 ```

@@ -71,7 +71,7 @@ DEFAULT_COVARS="--transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ --base_covariat
 
 if [[ " ${TOOL[*]} " =~ "bolt" ]]
 then
-    dx run mrcepid-runassociationtesting --brief --yes --name "${OUT}.bolt" --priority normal --destination results/ -imode=burden -ioutput_prefix="${OUT}.bolt" -iinput_args="--association_tarballs $TAR --phenofile $PHENO --sex $SEX --tool bolt --run_marker_tests $APPEND $DEFAULT_COVARS"
+    dx run mrcepid-runassociationtesting --brief --yes --name "${OUT}.bolt" --priority normal --destination results/ -imode=burden -ioutput_prefix="${OUT}.bolt" -iinput_args="--association_tarballs $TAR --phenofile $PHENO --sex $SEX --tool bolt --run_marker_tests --bolt_non_infinite $APPEND $DEFAULT_COVARS"
 fi
 
 if [[ " ${TOOL[*]} " =~ "saige" ]]
@@ -86,7 +86,7 @@ fi
 
 if [[ " ${TOOL[*]} " =~ "regenie" ]]
 then
-    dx run mrcepid-runassociationtesting --brief --yes --name "${OUT}.regenie" --priority normal --destination results/ -imode=burden -ioutput_prefix="${OUT}.regenie" -iinput_args="--association_tarballs $TAR --phenofile $PHENO --sex $SEX --tool regenie --run_marker_tests $APPEND $DEFAULT_COVARS"
+    dx run mrcepid-runassociationtesting --brief --yes --name "${OUT}.regenie" --priority high --destination results/ -imode=burden -ioutput_prefix="${OUT}.regenie" -iinput_args="--association_tarballs $TAR --phenofile $PHENO --sex $SEX --tool regenie --run_marker_tests $APPEND $DEFAULT_COVARS"
 fi
 
 if [[ " ${TOOL[*]} " =~ "glm" ]]
