@@ -22,9 +22,9 @@ The purpose of this Markdown is to document variant processing and QC of the 470
     + [3b. Run make-bgen](#3b-run-make-bgen)
   * [4. Collapse Variants](#4-collapse-variants)
     + [4a. Generating Genetic File List](#4a-generating-genetic-file-list)
-- [4b. Running Collapse Variants](#4b-running-collapse-variants)
+    + [4b. Running Collapse Variants](#4b-running-collapse-variants)
   * [5. Run Association Testing](#5-run-association-testing)
-    + [5a. Setting Genetic Data:](#5a-setting-genetic-data-)
+    + [5a. Setting Genetic Data](#5a-setting-genetic-data)
       - [WES Samples List](#wes-samples-list)
       - [Define WBA grouping](#define-wba-grouping)
       - [Running mrcepid-buildgrms](#running-mrcepid-buildgrms)
@@ -39,14 +39,18 @@ The purpose of this Markdown is to document variant processing and QC of the 470
       - [Writing Transcript File for DNANexus](#writing-transcript-file-for-dnanexus)
     + [5f. Running Associations](#5f-running-associations)
       - [Burden Tests](#burden-tests)
-      - [Individual Gene(s)](#individual-gene-s-)
+      - [Individual Genes](#individual-genes)
       - [PheWAS](#phewas)
+- [Generating Medical Phenotypes](#generating-medical-phenotypes)
+  * [Downloading And Processing Phenotypes](#downloading-and-processing-phenotypes)
+  * [Creating Phenofiles](#creating-phenofiles)
+- [QCing Imputed Data](#qcing-imputed-data)
+  * [Getting INFO scores](#getting-info-scores)
+  * [Running Annotation](#running-annotation)
 - [Loading Association Tests](#loading-association-tests)
   * [Functions for Loading Data](#functions-for-loading-data)
   * [Functions for Plotting](#functions-for-plotting)
   * [Example Code For Loading and Plotting](#example-code-for-loading-and-plotting)
-
-
 
 # Setup
 
@@ -319,7 +323,7 @@ D. Transcripts List - A list of valid ENST/MANE transcripts with annotations
 
 E. File listing locations of genetic data
 
-### 5a. Setting Genetic Data:
+### 5a. Setting Genetic Data
 
 Building the set of files in item (1) above, also requires some pre-built data. We document how to generate these files below.
 
@@ -714,7 +718,7 @@ dx upload variant_mask_list.txt --destination tarball_lists/
 
 ```
 
-#### Individual Gene(s)
+#### Individual Genes
 
 ```{bash}
 
@@ -780,6 +784,34 @@ The script `scripts/parse_ICD10.py` can then be used to generate phenofiles for 
 
 # All cancer codes:
 ./scripts/parse_ICD10.py -d "C00 C01 C02 C03 C04 C05 C06 C07 C08 C09 C10 C11 C12 C13 C14 C15 C16 C17 C18 C19 C20 C21 C22 C23 C24 C25 C26 C30 C31 C32 C33 C34 C37 C38 C39 C40 C41 C42 C43 C44 C45 C46 C47 C48 C49 C50 C51 C52 C53 C54 C55 C56 C57 C58 C60 C61 C62 C63 C64 C65 C66 C67 C68 C69 C70 C71 C72 C73 C74 C75 C76 C77 C78 C79 C80 C81 C82 C83 C84 C85 C86 C88 C90 C91 C92 C93 C94 C95 C96 C97" -i data_files/medical_data/coding19.tsv -p data_files/medical_data/vital_stats.tsv -c data_files/medical_data/processed_icd10.tsv -o cancer_codes.pheno
+
+```
+
+# QCing Imputed Data
+
+## Getting INFO scores
+
+```{bash, eval = False}
+# First need to run the imputed data through a BOLT run to get INFO scores...
+# To do this, comment out the code that does the annotation (in self._process_bolt_outputs) to get all of the files but keep annotation from running (have to provide SOME annotation even if it is not used (--annotation_data_folder). Then run:
+dx run mrcepid-runassociationtesting --instance-type mem2_ssd1_v2_x16 --debug-on All -imode="gwas" -ioutput_prefix="test" -iinput_args="--phenofile file-GKQ8Q08JJy84pB3JFkJv0XB4 --sex 2 --tool bolt --phenoname z_tel_len --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ --base_covariates file-GGZkYk8JJy8GFjjF6kYG01g8 --array_bed_file file-GGbZKfjJP7J5223J4v6k49j0 --array_fam_file file-GGbZPy0JP7JJBjkG4vbPqKk9 --array_bim_file file-GGbZPyQJP7J82gv54x6F3Kjq --low_MAC_list file-GGbZQ08JP7JJPBbP4vfF9X25 --inclusion_list file-GGbZFKQJP7J5223J4v6k49P3 --stream_data --annotation_data_folder project_resources/imputation_annotation/ --imputed_data_folder 'Bulk/Imputation/Imputation from genotype (GEL)/'"
+
+```
+
+## Running Annotation
+
+This chunk provides one commandline per imputed data type using the vep_annotater.py script:
+
+```{bash, eval = F}
+
+# GEL
+perl -e 'foreach $x (1..22,"X") {if ($x <= 12 || $x == 19) {$mach = "mem2_ssd2_v2_x16";} else {$mach = "mem2_ssd2_v2_x8"} print "dx run script_runner --destination project_resources/imputation_annotation/gel/ --yes --brief --instance-type $mach -irequired_files={'\''file-Fx2x21QJ06f47gV73kZPjkQQ'\'','\''file-Fx2x270Jx0j17zkb3kbBf6q2'\'','\''file-GPfGX48JbPz57ZG2qBVV2Fy7'\'','\''file-GFYy320J0zVqyqQq6pgYFYFp'\'','\''file-GFYy7qQJ0zVxP9vJ0vk3K055'\'','\''file-GFYyj6jJ0zVQG5Kx21z1xqGQ'\'','\''file-GPj1xgjJ7F8G43Vk8kZpX3zF'\''} -iscript=file-GQ5fKFQJ0zVbbf2k781k2fK4 -iadditional_commands='\''$x \"Bulk/Imputation/Imputation from genotype (GEL)/\" GEL_INFO.assoc_results.tar.gz false'\''\n";}' | bash
+
+# Original
+perl -e 'foreach $x (1..22,"X") {if ($x <= 12 || $x == 19) {$mach = "mem2_ssd2_v2_x16";} else {$mach = "mem2_ssd2_v2_x8"} print "dx run script_runner --destination project_resources/imputation_annotation/base/ --yes --brief --instance-type $mach -irequired_files={'\''file-Fx2x270Jx0j17zkb3kbBf6q2'\'','\''file-Fx2x21QJ06f47gV73kZPjkQQ'\'','\''file-GPfGX48JbPz57ZG2qBVV2Fy7'\'','\''file-GFYy320J0zVqyqQq6pgYFYFp'\'','\''file-GFYy7qQJ0zVxP9vJ0vk3K055'\'','\''file-GFYyj6jJ0zVQG5Kx21z1xqGQ'\'','\''file-Fx2x2j0JqGyBfQFq3jB9Fq72'\''} -iscript=file-GQ66q5QJ0zVYyX2pY5v37g1y -iadditional_commands='\''$x \"Bulk/Imputation/UKB imputation from genotype/\" ukb22828_c$x" . "_b0_v3.mfi.txt true'\''\n";}' | bash
+
+# TOPmed
+perl -e 'foreach $x (1..22,"X") {if ($x <= 12 || $x == 19) {$mach = "mem2_ssd2_v2_x16";} else {$mach = "mem2_ssd2_v2_x8"} print "dx run script_runner --destination project_resources/imputation_annotation/topmed/ --yes --brief --instance-type $mach -irequired_files={'\''file-Fx2x270Jx0j17zkb3kbBf6q2'\'','\''file-Fx2x21QJ06f47gV73kZPjkQQ'\'','\''file-GPfGX48JbPz57ZG2qBVV2Fy7'\'','\''file-GFYy320J0zVqyqQq6pgYFYFp'\'','\''file-GFYy7qQJ0zVxP9vJ0vk3K055'\'','\''file-GFYyj6jJ0zVQG5Kx21z1xqGQ'\''} -iscript=file-GQ66q5QJ0zVYyX2pY5v37g1y -iadditional_commands='\''$x \"Bulk/Imputation/Imputation from genotype (TOPmed)/\" ukb21007_c$x" . "_b0_v1.sites.vcf.gz false'\''\n";}' | bash
 
 ```
 
