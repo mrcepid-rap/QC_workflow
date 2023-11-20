@@ -22,9 +22,9 @@ The purpose of this Markdown is to document variant processing and QC of the 470
     + [3b. Run make-bgen](#3b-run-make-bgen)
   * [4. Collapse Variants](#4-collapse-variants)
     + [4a. Generating Genetic File List](#4a-generating-genetic-file-list)
-- [4b. Running Collapse Variants](#4b-running-collapse-variants)
+    + [4b. Running Collapse Variants](#4b-running-collapse-variants)
   * [5. Run Association Testing](#5-run-association-testing)
-    + [5a. Setting Genetic Data:](#5a-setting-genetic-data-)
+    + [5a. Setting Genetic Data](#5a-setting-genetic-data)
       - [WES Samples List](#wes-samples-list)
       - [Define WBA grouping](#define-wba-grouping)
       - [Running mrcepid-buildgrms](#running-mrcepid-buildgrms)
@@ -39,14 +39,18 @@ The purpose of this Markdown is to document variant processing and QC of the 470
       - [Writing Transcript File for DNANexus](#writing-transcript-file-for-dnanexus)
     + [5f. Running Associations](#5f-running-associations)
       - [Burden Tests](#burden-tests)
-      - [Individual Gene(s)](#individual-gene-s-)
+      - [Individual Genes](#individual-genes)
       - [PheWAS](#phewas)
+- [Generating Medical Phenotypes](#generating-medical-phenotypes)
+  * [Downloading And Processing Phenotypes](#downloading-and-processing-phenotypes)
+  * [Creating Phenofiles](#creating-phenofiles)
+- [QCing Imputed Data](#qcing-imputed-data)
+  * [Getting INFO scores](#getting-info-scores)
+  * [Running Annotation](#running-annotation)
 - [Loading Association Tests](#loading-association-tests)
   * [Functions for Loading Data](#functions-for-loading-data)
   * [Functions for Plotting](#functions-for-plotting)
   * [Example Code For Loading and Plotting](#example-code-for-loading-and-plotting)
-
-
 
 # Setup
 
@@ -240,18 +244,18 @@ The input `bgen_index` to mrcepid-runassociationtesting is a tab-delimited file 
 
 ```
 chrom vep_dxid bgen_dxid bgen_index_dxid sample_dxid
-1    file-1234567890ABCDEFGH   file-0987654321ABCDEFGH   file-1234567890HGFEDCBA   file-0987654321HGFEDCBA
+chr1    file-1234567890ABCDEFGH   file-0987654321ABCDEFGH   file-1234567890HGFEDCBA   file-0987654321HGFEDCBA
 ```
 
 The following script should automate the production of this file:
 
-`scripts/build_bgen_list.py`
+`python3 scripts/build_bgen_list.py /filtered_bgen/`
 
 Remember to upload the file to DNANexus like:
 
 `dx upload --destination filtered_bgen/ bgen_locs.tsv`
 
-# 4b. Running Collapse Variants
+### 4b. Running Collapse Variants
 
 Here we generate a list of variant types that we want to collapse on to generate sets of variants for associationtesting. Obviously these can be tweaked, but here I am generating a set of initial variants useful for most scenarios.
 
@@ -276,12 +280,12 @@ for (maf in names(MAFs)) {
   
   for (csq in names(CSQs)) {
     
-    base_command <- 'dx run mrcepid-collapsevariants --priority normal --destination collapsed_variants --brief --yes -ibgen_index=file-GFzfyyQJ0zVqXZQBK4592QQg'
+    base_command <- 'dx run mrcepid-collapsevariants --priority normal --destination collapsed_variants/ --brief --yes -ibgen_index=file-GFzfyyQJ0zVqXZQBK4592QQg'
     expression <- paste0("'",paste(MAFs[maf], CSQs[csq], 'FILTER=="PASS"', sep = " & "), "'")
     filename <- paste(csq, maf, sep = '-')
     cat(paste(base_command, # standard input for all runs
               paste0('-ifiltering_expression=',expression), # filtering expression
-              paste0('-ifile_prefix=', filename), # file name
+              paste0('-ioutput_prefix=', filename), # file name
               sep = ' '))
     cat('\n')
     
@@ -319,7 +323,7 @@ D. Transcripts List - A list of valid ENST/MANE transcripts with annotations
 
 E. File listing locations of genetic data
 
-### 5a. Setting Genetic Data:
+### 5a. Setting Genetic Data
 
 Building the set of files in item (1) above, also requires some pre-built data. We document how to generate these files below.
 
@@ -330,6 +334,7 @@ This needs to be done on a cloud workstation
 ```{bash, eval = F}
 
 # Download (Quotes ["] are required due to spaces)
+dx-su-contrib
 dx mkdir project_resources/wes_resources/
 dx download "Bulk/Exome sequences/Population level exome OQFE variants, pVCF format - final release/ukb23157_cY_b0_v1.vcf.gz"
 # bcftools query -l to get a list of samples. There SHOULD be 469,835 individuals
@@ -540,9 +545,10 @@ Note that the vep.tsv.gz file cannot be included in this repository, so you will
 
 vep.stats <- fread("data_files/annotations/470k_vep.sorted.tsv.gz")
 vep.stats[,dummy:=1]
-counts <- vep.stats[PARSED_CSQ=="SYN" & FILTER == "PASS" & MAF < 1e-3,sum(dummy),by=c("ENST")]
+counts <- vep.stats[FILTER == "PASS" & MAF < 1e-3 & (REVEL >= 0.5 | is.na(REVEL)),sum(dummy),by=c("ENST", "PARSED_CSQ")]
+counts <- counts[PARSED_CSQ %in% c('SYN','PTV','MISSENSE')]
 
-transcripts.annotated <- merge(counts,transcripts,by="ENST",all.y=T)
+transcripts.annotated <- merge(counts[PARSED_CSQ == 'SYN'],transcripts,by="ENST",all.y=T)
 transcripts.annotated[,syn.count:=if_else(is.na(V1),0,V1)]
 transcripts.annotated[,V1:=NULL]
 transcripts.annotated[,coord:=paste0("chr", chrom,":",start,"-",end)]
@@ -551,6 +557,24 @@ transcripts.annotated[,coord:=paste0("chr", chrom,":",start,"-",end)]
 transcripts.annotated[,highlight:=if_else(syn.count == 0, T, F)]
 
 ggplot(transcripts.annotated,aes(cds_length,syn.count,colour=highlight)) + geom_point(size = 0.5) + xlim(0,30000) + ylim(0,3100) + geom_abline(slope = 0.08062,intercept=13.25662) + theme
+
+setnames(counts, "V1", "n.vars")
+nb.model <- glm.nb(n.vars ~ PARSED_CSQ, data = counts)
+
+coef_table <- data.table(tidy(nb.model))
+
+sim <- data.table("count"=c(rnbinom(nrow(counts[PARSED_CSQ == 'PTV']), size=nb.model$theta, mu=exp(coef_table[term %in% c('(Intercept)','PARSED_CSQPTV'), sum(estimate)])),
+                            rnbinom(nrow(counts[PARSED_CSQ == 'SYN']), size=nb.model$theta, mu=exp(coef_table[term %in% c('(Intercept)','PARSED_CSQSYN'), sum(estimate)])),
+                            rnbinom(nrow(counts[PARSED_CSQ == 'MISSENSE']), size=nb.model$theta, mu=exp(coef_table[term %in% c('(Intercept)'), sum(estimate)]))),
+                  'PARSED_CSQ'=c(rep('PTV', nrow(counts[PARSED_CSQ == 'PTV'])),
+                                 rep('SYN', nrow(counts[PARSED_CSQ == 'SYN'])),
+                                 rep('MISSENSE', nrow(counts[PARSED_CSQ == 'MISSENSE']))))
+sim[,dummy:=1]
+sim <- sim[,sum(dummy),by=c("count","PARSED_CSQ")]
+
+ggplot(counts[PARSED_CSQ == 'PTV'], aes(n.vars)) + geom_histogram(binwidth=1) + geom_point(inherit.aes=F, data=sim[PARSED_CSQ == 'PTV'], aes(count, V1)) + xlim(0,1000) + ggtitle('PTV') + theme
+ggplot(counts[PARSED_CSQ == 'SYN'], aes(n.vars)) + geom_histogram(binwidth=1) + geom_point(inherit.aes=F, data=sim[PARSED_CSQ == 'SYN'], aes(count, V1)) + xlim(0,1000) + ggtitle('SYN') + theme
+ggplot(counts[PARSED_CSQ == 'MISSENSE'], aes(n.vars)) + geom_histogram(binwidth=1) + geom_point(inherit.aes=F, data=sim[PARSED_CSQ == 'MISSENSE'], aes(count, V1)) + xlim(0,1000) + ggtitle('MISSENSE') + theme
 ```
 
 #### Identifying Genes with 0 Variants
@@ -609,24 +633,24 @@ ggplot(per.cat.fail,aes(chrom, V1, fill=fail.cat, group=fail.cat)) + geom_col() 
 
 ```{r sample counts}
 
-wba <- fread("data_files/ancestry/wba.txt")
-setnames(wba,"n_eid","eid")
-wba[,eid:=as.character(eid)]
+ancestry <- fread("data_files/ancestry/ancestry.txt")
+setnames(ancestry,"n_eid","eid")
+ancestry[,eid:=as.character(eid)]
 
-indv.counts <- fread("data_files/470k_indv_counts.tsv.gz")
+indv.counts <- fread("data_files/annotations/470k_indv_counts.tsv.gz")
 indv.counts[,eid:=as.character(eid)]
 
-indv.counts <- merge(indv.counts,wba[,c("eid","European_ancestry")],by="eid")
+indv.counts <- merge(indv.counts,ancestry,by="eid")
 
-ggplot(indv.counts,aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=80) + theme
+high_syn <- quantile(rpois(n = nrow(indv.counts), lambda = median(indv.counts[,SYN])), probs = c(0.003,0.5,0.997))
+ggplot(indv.counts,aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=high_syn) + theme
 
-ggplot(indv.counts[European_ancestry == 1],aes(PTV)) + geom_histogram(binwidth=1) + theme
-ggplot(indv.counts[European_ancestry == 1],aes(MISSENSE)) + geom_histogram(binwidth=1) + theme
-ggplot(indv.counts[European_ancestry == 1],aes(SYN)) + geom_histogram(binwidth=1) + xlim(0,160) + theme
+ggplot(indv.counts[ancestry == 'eur'],aes(PTV)) + geom_histogram(binwidth=1) + theme
+ggplot(indv.counts[ancestry == 'eur'],aes(MISSENSE)) + geom_histogram(binwidth=1) + theme
+ggplot(indv.counts[ancestry == 'eur'],aes(SYN)) + geom_histogram(binwidth=1) + geom_vline(xintercept=high_syn) + xlim(0,160) + theme
 
-quantile(rpois(n = 469430, lambda = 80), probs = c(0.997))
-indv.counts[,high.SYN:=if_else(SYN>quantile(rpois(n = 453342, lambda = 80), probs = c(0.995))[[1]],1,0)]
-table(indv.counts[,c("high.SYN","European_ancestry")])
+indv.counts[,high.SYN:=if_else(SYN>high_syn[[3]],T,F)]
+table(indv.counts[,c("high.SYN","ancestry")])
 ```
 
 #### Writing Transcript File for DNANexus
@@ -682,19 +706,24 @@ dx ls -l collapsed_variants/*.tar.gz |  grep 'MAF_01' | perl -ane 'chomp $_; if 
 dx upload variant_mask_list.txt --destination tarball_lists/
 
 # This will launch a single burden test using BOLT. Additional tools can be run by modifying the final parameter (e.g. bolt,saige,staar)
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur 0 null null null bolt file-GGbZFKQJP7J5223J4v6k49P3 null # EUR Related
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_sas 0 null null null bolt file-GGbZFPjJP7J0vZ6f4v65G4Zj null # SAS Related
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_afr 0 null null null bolt file-GGbZFQjJP7J92Xq94x9bXJXG null # AFR Related
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_new 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 file-GGbQ3yQJ0zVxXg8y4yY2ByXZ # New (470k samples) only
-./launch.sh file-GGJZB4jJ0zVbJv8J5K8z2KF9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_all 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 null # All (Eur/Sas/Afr/Admixed) Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur 0 null null null bolt file-GGbZFKQJP7J5223J4v6k49P3 null # EUR Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_sas 0 null null null bolt file-GGbZFPjJP7J0vZ6f4v65G4Zj null # SAS Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_afr 0 null null null bolt file-GGbZFQjJP7J92Xq94x9bXJXG null # AFR Related
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_new 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 file-GGbQ3yQJ0zVxXg8y4yY2ByXZ # New (470k samples) only
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_all 0 null null null bolt file-GGbZFJ8JP7JKbG8v4xkQVGY7 null # All (Eur/Sas/Afr/Admixed) Related
+
+
+# REGENIE tests
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur_full_snps 0 null null null regenie file-GGbZFKQJP7J5223J4v6k49P3 null
+./launch.sh file-GGJZ2F8J0zVpJfYj3K3095Q9 file-GGf1gF8JJy85qqGk4x4GQ22F null false menopause_34_eur_rel_snps 0 null null null regenie file-GGbZFKQJP7J5223J4v6k49P3 null
 
 ```
 
-#### Individual Gene(s)
+#### Individual Genes
 
 ```{bash}
 
-dx run mrcepid-runassociationtesting --instance-type mem3_ssd1_v2_x16 --priority normal --destination results/ -imode='extract' -ioutput_prefix="menopause" -iinput_args='--gene_ids BRCA2 CHEK2 ZNF518A --association_tarballs file-GGJZ2F8J0zVpJfYj3K3095Q9 --phenofile  --sex 0 --inclusion_list file-GGJb118J80QpZGk5Fy4q6bJZ --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGPKqYQJJy8Gv2XKJ3v3KK85 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg'
+dx run mrcepid-runassociationtesting --instance-type mem3_ssd1_v2_x16 --priority normal --destination results/ -imode='extract' -ioutput_prefix="menopause" -iinput_args='--gene_ids BRCA2 CHEK2 ZNF518A --association_tarballs file-GGJZ2F8J0zVpJfYj3K3095Q9 --phenofile  --sex 0 --inclusion_list file-GGJb118J80QpZGk5Fy4q6bJZ --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ  --base_covariates file-GGPKqYQJJy8Gv2XKJ3v3KK85 --bgen_index file-GFzfyyQJ0zVqXZQBK4592QQg --sparse_grm file-GGbZPz8JP7J4vVXp4vj5JGyx --sparse_grm_sample file-GGbZPzjJP7JF98v34vxg8QkV'
 
 ```
 
@@ -756,6 +785,34 @@ The script `scripts/parse_ICD10.py` can then be used to generate phenofiles for 
 
 # All cancer codes:
 ./scripts/parse_ICD10.py -d "C00 C01 C02 C03 C04 C05 C06 C07 C08 C09 C10 C11 C12 C13 C14 C15 C16 C17 C18 C19 C20 C21 C22 C23 C24 C25 C26 C30 C31 C32 C33 C34 C37 C38 C39 C40 C41 C42 C43 C44 C45 C46 C47 C48 C49 C50 C51 C52 C53 C54 C55 C56 C57 C58 C60 C61 C62 C63 C64 C65 C66 C67 C68 C69 C70 C71 C72 C73 C74 C75 C76 C77 C78 C79 C80 C81 C82 C83 C84 C85 C86 C88 C90 C91 C92 C93 C94 C95 C96 C97" -i data_files/medical_data/coding19.tsv -p data_files/medical_data/vital_stats.tsv -c data_files/medical_data/processed_icd10.tsv -o cancer_codes.pheno
+
+```
+
+# QCing Imputed Data
+
+## Getting INFO scores
+
+```{bash, eval = False}
+# First need to run the imputed data through a BOLT run to get INFO scores...
+# To do this, comment out the code that does the annotation (in self._process_bolt_outputs) to get all of the files but keep annotation from running (have to provide SOME annotation even if it is not used (--annotation_data_folder). Then run:
+dx run mrcepid-runassociationtesting --instance-type mem2_ssd1_v2_x16 --debug-on All -imode="gwas" -ioutput_prefix="test" -iinput_args="--phenofile file-GKQ8Q08JJy84pB3JFkJv0XB4 --sex 2 --tool bolt --phenoname z_tel_len --transcript_index file-GFzk5gjJ0zVQXPQX8p4jj2BJ --base_covariates file-GGZkYk8JJy8GFjjF6kYG01g8 --array_bed_file file-GGbZKfjJP7J5223J4v6k49j0 --array_fam_file file-GGbZPy0JP7JJBjkG4vbPqKk9 --array_bim_file file-GGbZPyQJP7J82gv54x6F3Kjq --low_MAC_list file-GGbZQ08JP7JJPBbP4vfF9X25 --inclusion_list file-GGbZFKQJP7J5223J4v6k49P3 --stream_data --annotation_data_folder project_resources/imputation_annotation/ --imputed_data_folder 'Bulk/Imputation/Imputation from genotype (GEL)/'"
+
+```
+
+## Running Annotation
+
+This chunk provides one commandline per imputed data type using the vep_annotater.py script:
+
+```{bash, eval = F}
+
+# GEL
+perl -e 'foreach $x (1..22,"X") {if ($x <= 12 || $x == 19) {$mach = "mem2_ssd2_v2_x16";} else {$mach = "mem2_ssd2_v2_x8"} print "dx run script_runner --destination project_resources/imputation_annotation/gel/ --yes --brief --instance-type $mach -irequired_files={'\''file-Fx2x21QJ06f47gV73kZPjkQQ'\'','\''file-Fx2x270Jx0j17zkb3kbBf6q2'\'','\''file-GPfGX48JbPz57ZG2qBVV2Fy7'\'','\''file-GFYy320J0zVqyqQq6pgYFYFp'\'','\''file-GFYy7qQJ0zVxP9vJ0vk3K055'\'','\''file-GFYyj6jJ0zVQG5Kx21z1xqGQ'\'','\''file-GPj1xgjJ7F8G43Vk8kZpX3zF'\''} -iscript=file-GQ5fKFQJ0zVbbf2k781k2fK4 -iadditional_commands='\''$x \"Bulk/Imputation/Imputation from genotype (GEL)/\" GEL_INFO.assoc_results.tar.gz false'\''\n";}' | bash
+
+# Original
+perl -e 'foreach $x (1..22,"X") {if ($x <= 12 || $x == 19) {$mach = "mem2_ssd2_v2_x16";} else {$mach = "mem2_ssd2_v2_x8"} print "dx run script_runner --destination project_resources/imputation_annotation/base/ --yes --brief --instance-type $mach -irequired_files={'\''file-Fx2x270Jx0j17zkb3kbBf6q2'\'','\''file-Fx2x21QJ06f47gV73kZPjkQQ'\'','\''file-GPfGX48JbPz57ZG2qBVV2Fy7'\'','\''file-GFYy320J0zVqyqQq6pgYFYFp'\'','\''file-GFYy7qQJ0zVxP9vJ0vk3K055'\'','\''file-GFYyj6jJ0zVQG5Kx21z1xqGQ'\'','\''file-Fx2x2j0JqGyBfQFq3jB9Fq72'\''} -iscript=file-GQ66q5QJ0zVYyX2pY5v37g1y -iadditional_commands='\''$x \"Bulk/Imputation/UKB imputation from genotype/\" ukb22828_c$x" . "_b0_v3.mfi.txt true'\''\n";}' | bash
+
+# TOPmed
+perl -e 'foreach $x (1..22,"X") {if ($x <= 12 || $x == 19) {$mach = "mem2_ssd2_v2_x16";} else {$mach = "mem2_ssd2_v2_x8"} print "dx run script_runner --destination project_resources/imputation_annotation/topmed/ --yes --brief --instance-type $mach -irequired_files={'\''file-Fx2x270Jx0j17zkb3kbBf6q2'\'','\''file-Fx2x21QJ06f47gV73kZPjkQQ'\'','\''file-GPfGX48JbPz57ZG2qBVV2Fy7'\'','\''file-GFYy320J0zVqyqQq6pgYFYFp'\'','\''file-GFYy7qQJ0zVxP9vJ0vk3K055'\'','\''file-GFYyj6jJ0zVQG5Kx21z1xqGQ'\''} -iscript=file-GQ66q5QJ0zVYyX2pY5v37g1y -iadditional_commands='\''$x \"Bulk/Imputation/Imputation from genotype (TOPmed)/\" ukb21007_c$x" . "_b0_v1.sites.vcf.gz false'\''\n";}' | bash
 
 ```
 
@@ -864,15 +921,36 @@ The following code block shows a simple example of how we load burden tests. Wil
 ```{r load data, fig.height=6, fig.width=15}
 
 # Actually load data and generate plots
-bolt.ret <- load.and.plot.data(file.names = c("menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
+bolt.ret <- load.and.plot.data(file.names = c("../scratch/menopause_34.bolt.genes.BOLT.stats.tsv.gz"),
                                p.val.col="P_BOLT_LMM",
                                tool.name = "BOLT",
                                AC.col = "AC",
-                               marker.file = "menopause_34.bolt.markers.BOLT.stats.tsv.gz",
+                               marker.file = "../scratch/menopause_34.bolt.markers.BOLT.stats.tsv.gz",
                                ymax = 25)
 
 # Show all the plots for MAF_01 (can change to AC_1/MAF_1/etc. for additional MAF cutoffs)
 for (mask in names(bolt.ret$plots)[grepl("MAF_01", names(bolt.ret$plots))]) {
   print(bolt.ret$plots[[mask]]$comb.plot)
 }
+
+og_meno <- fread('meno_raw')
+og_meno <- merge(og_meno, bolt.ret$gene.table, by=c("SYMBOL","MASK"))
+og_meno[,log.p.og:=-log10(p.og)]
+
+ggplot(og_meno, aes(log.p.og, log.p)) + geom_point() + scale_x_continuous(name="450K log10p",limits = c(0,22)) + scale_y_continuous(name="470k log10p",limits=c(0,22)) + geom_text(aes(label=paste(SYMBOL,MASK,sep="\n")),size = 2, hjust=0, position=position_jitter(width=1,height=1)) + geom_abline(slope = 1,linetype=2,colour="red") + theme
+
+og_meno[,diff_AC:=AC - og.AC]
+
+count.old <- 106973
+count.new <- 110983
+
+og_meno[,diff_chi:=chisq.test(matrix(data = c(og.AC, AC, count.old, count.new), nrow=2,ncol=2))$p.value,by=1:nrow(og_meno)]
+
+ggplot(og_meno, aes(SYMBOL, diff_AC, group = interaction(SYMBOL, MASK), colour=MASK)) +
+  geom_point(position=position_dodge(width=0.5), size=2) +
+  geom_text(aes(y=diff_AC + 1, label=sprintf('p=%0.2f',diff_chi)), position = position_dodge(width=0.5)) +
+  scale_y_continuous(name = "ΔAC", breaks = seq(0,30,by=)) +
+  scale_x_discrete(name = "") +
+  coord_capped_cart(left = 'none', bottom=brackets_horizontal(tick.length = 0)) +
+  theme.legend + theme(panel.grid.major.x=element_blank())
 ```
