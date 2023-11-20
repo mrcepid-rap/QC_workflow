@@ -249,7 +249,7 @@ chr1    file-1234567890ABCDEFGH   file-0987654321ABCDEFGH   file-1234567890HGFED
 
 The following script should automate the production of this file:
 
-`scripts/build_bgen_list.py`
+`python3 scripts/build_bgen_list.py /filtered_bgen/`
 
 Remember to upload the file to DNANexus like:
 
@@ -334,6 +334,7 @@ This needs to be done on a cloud workstation
 ```{bash, eval = F}
 
 # Download (Quotes ["] are required due to spaces)
+dx-su-contrib
 dx mkdir project_resources/wes_resources/
 dx download "Bulk/Exome sequences/Population level exome OQFE variants, pVCF format - final release/ukb23157_cY_b0_v1.vcf.gz"
 # bcftools query -l to get a list of samples. There SHOULD be 469,835 individuals

@@ -6,6 +6,11 @@
 .talismanrc
 .idea/*
 
+.DS_Store
+*/.DS_Store
+
+scripts/bgen_locs.tsv
+
 data_files/ancestry/ancestry.txt
 data_files/ancestry/pca_participant.tsv
 data_files/transcripts/*

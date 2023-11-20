@@ -5,7 +5,7 @@ import dxpy
 
 args = sys.argv
 
-found_files = dxpy.find_data_objects(classname='file', folder=args[1])
+found_files = dxpy.find_data_objects(classname='file', folder=args[1], recurse=False)
 
 bgen_index = {}
 
